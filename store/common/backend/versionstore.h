@@ -36,6 +36,7 @@
 #include "store/common/timestamp.h"
 
 #include <set>
+#include <string>
 #include <map>
 #include <unordered_map>
 

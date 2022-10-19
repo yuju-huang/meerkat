@@ -12,7 +12,8 @@ EXPAND = lib/tmpl/expand
 ERPC_PATH= "./third_party/eRPC"
 #ERPC_PATH= "/biggerraid/users/aaasz/eRPC"
 
-ERPC_CFLAGS_RAW := -I $(ERPC_PATH)/src -DRAW=true
+ERPC_CFLAGS_RAW := -I $(ERPC_PATH)/src -DINFINIBAND=true
+#ERPC_CFLAGS_RAW := -I $(ERPC_PATH)/src -DRAW=true
 ERPC_LDFLAGS_RAW := -L $(ERPC_PATH)/build -lerpc -lnuma -ldl -lgflags -libverbs
 
 ERPC_CFLAGS_DPDK := -I $(ERPC_PATH)/src -I /usr/include/dpdk -DDPDK=true -march=native

@@ -13,6 +13,7 @@
 #include "lib/message.h"
 #include "store/common/timestamp.h"
 
+#include <string>
 #include <unordered_map>
 
 // Reply types
