@@ -59,8 +59,8 @@ void server_thread_func(meerkatstore::meerkatir::Server *server,
     int ht_ct = boost::thread::hardware_concurrency();
     FastTransport *transport = new FastTransport(config,
                                                 local_uri,
-                                                //FLAGS_numServerThreads,
-                                                ht_ct,
+                                                FLAGS_numServerThreads,
+                                                //ht_ct,
                                                 4,
                                                 0,
                                                 numa_node,
@@ -164,14 +164,17 @@ main(int argc, char **argv)
 
     // start the app on all available cores to regulate frequency boosting
     int ht_ct = boost::thread::hardware_concurrency();
-    //std::vector<std::thread> thread_arr(FLAGS_numServerThreads);
-    std::vector<std::thread> thread_arr(ht_ct);
-    //for (uint8_t i = 0; i < FLAGS_numServerThreads; i++) {
-    for (uint8_t i = 0; i < ht_ct; i++) {
+    std::vector<std::thread> thread_arr(FLAGS_numServerThreads);
+    //std::vector<std::thread> thread_arr(ht_ct);
+    static constexpr size_t kMaxThreads = 64;
+    static constexpr size_t kNumNumas = 2;
+    for (uint8_t i = 0; i < FLAGS_numServerThreads; i++) {
+    //for (uint8_t i = 0; i < ht_ct; i++) {
         // thread_arr[i] = std::thread(server_thread_func, server, config, i%nn_ct, i);
         // erpc::bind_to_core(thread_arr[i], i%nn_ct, i/nn_ct);
         uint8_t numa_node = (i % 4 < 2)?0:1;
-        uint8_t idx = i/4 + (i % 2) * 20;
+        uint8_t idx = (8 + i/4 + (i % 2) * kMaxThreads/4) % (kMaxThreads / kNumNumas); // starting from core8 to avoid conflicts
+        // uint8_t idx = i/4 + (i % 2) * 20;
         thread_arr[i] = std::thread(server_thread_func, server, config, numa_node, i);
         erpc::bind_to_core(thread_arr[i], numa_node, idx);
     }
