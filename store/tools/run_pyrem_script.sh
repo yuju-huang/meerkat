@@ -1,7 +1,7 @@
-python e1_e2.py \
-		--server_binary /biggerraid/users/adriana/meerkat/store/meerkatstore/meerkat_server                      \
-		--client_binary /biggerraid/users/adriana/meerkat/store/benchmark/retwisClient                           \
-		--config_file_directory /biggerraid/users/adriana/meerkat/store/tools                                   \
-		--key_file /biggerraid/users/adriana/meerkat/store/tools/keys                                           \
-		--suite_directory /mnt/log/adrianabenchmark
-
+MEERKAT_PATH=/home/yh885/meerkat
+python3 e1_e2.py \
+		--server_binary ${MEERKAT_PATH}/meerkat_server   \
+		--client_binary ${MEERKAT_PATH}/retwisClient     \
+		--config_file_directory ${MEERKAT_PATH}          \
+		--key_file ${MEERKAT_PATH}/keys                  \
+		--suite_directory ${MEERKAT_PATH}/yuju_benchmark

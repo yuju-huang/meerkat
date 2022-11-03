@@ -101,16 +101,27 @@ def azure_servers():
 # listed by ibv_devinfo.
 def zookeeper_clients():
     return {
-        RemoteHost('10.100.5.3') : {'phys_port'  : 1}, # anteater-1g
-        RemoteHost('10.100.3.49') : {'phys_port'  : 0}, # bongo-1g
-        RemoteHost('10.100.5.7') : {'phys_port'  : 1}, # capybara-1g
-        RemoteHost('10.100.5.13') : {'phys_port'  : 0}, # ibex-1g
-        RemoteHost('10.100.5.146'): {'phys_port'  : 1}, # lemur-1g
-        RemoteHost('10.100.5.144'): {'phys_port'  : 1}, # mongoose-1g
-        RemoteHost('10.100.5.15'): {'phys_port'  : 1}, # okapi-1g
-        RemoteHost('10.100.5.138'): {'phys_port'  : 1}, # platypus-1g
-        RemoteHost('10.100.5.23') : {'phys_port'  : 0}, # rhinoceros-1g
-        RemoteHost('10.100.5.25') : {'phys_port'  : 0}, # sloth-1g
+        #RemoteHost('10.100.5.3') : {'phys_port'  : 1}, # anteater-1g
+        #RemoteHost('10.100.3.49') : {'phys_port'  : 0}, # bongo-1g
+        #RemoteHost('10.100.5.7') : {'phys_port'  : 1}, # capybara-1g
+        #RemoteHost('10.100.5.13') : {'phys_port'  : 0}, # ibex-1g
+        #RemoteHost('10.100.5.146'): {'phys_port'  : 1}, # lemur-1g
+        #RemoteHost('10.100.5.144'): {'phys_port'  : 1}, # mongoose-1g
+        #RemoteHost('10.100.5.15'): {'phys_port'  : 1}, # okapi-1g
+        #RemoteHost('10.100.5.138'): {'phys_port'  : 1}, # platypus-1g
+        #RemoteHost('10.100.5.23') : {'phys_port'  : 0}, # rhinoceros-1g
+        #RemoteHost('10.100.5.25') : {'phys_port'  : 0}, # sloth-1g
+        RemoteHost('192.168.99.18') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.20') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.24') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.25') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.16') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.17') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.106') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.21') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.22') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.105') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.27') : {'phys_port'  : 0},
     }
     #return {
     #    RemoteHost('10.100.1.2') : {'phys_port'  : 1}, # anteater
@@ -127,9 +138,9 @@ def zookeeper_clients():
 
 def zookeeper_servers():
     return {
-        RemoteHost('10.100.5.153') : {'phys_port'  : 0}, # vicuna-1g
-        RemoteHost('10.100.5.174') : {'phys_port'  : 0}, # tapir-1g
-        RemoteHost('10.100.5.191') : {'phys_port'  : 0}, # unicorn-1g
+        RemoteHost('192.168.99.28') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.29') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.30') : {'phys_port'  : 0},
     }
 
 def num_clients_to_triple(num_clients):
@@ -153,7 +164,7 @@ def num_clients_to_triple(num_clients):
         for b in range(1, max_num_clients_per_machine + 1)
         for a in range(1, max_num_client_machines + 1)
     ]
-    return min(all_triples, key=lambda (a, b, c): abs(a * b * c - num_clients))
+    return min(all_triples, key=lambda a, b, c: abs(a * b * c - num_clients))
 
 
 def compute_num_clients(num_server_threads):
@@ -381,7 +392,7 @@ def run_benchmark(bench_dir, clients, servers, parameters):
     print(boxed('Starting clients at {}.'.format(datetime.datetime.now())))
     seconds = int(time.time()) # total seconds that passed since unix epoch
     client_tasks = []
-    for host_i, client in enumerate(list(clients.keys()[:parameters.num_client_machines])):
+    for host_i, client in enumerate(list(clients.keys())[:parameters.num_client_machines]):
         for client_i in range(parameters.num_clients_per_machine):
             cmd = [
                 "ulimit -n 8192;" , # increase how many fds we can open
@@ -448,7 +459,7 @@ def run_benchmark(bench_dir, clients, servers, parameters):
 
     # Copy the client logs over.
     print(boxed('Copying *.log.'))
-    for client in list(clients.keys()[:parameters.num_client_machines]):
+    for client in list(clients.keys())[:parameters.num_client_machines]:
         subprocess.call([
             'scp',
             '{}:/mnt/log/*.log'.format(client.hostname),
