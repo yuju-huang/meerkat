@@ -33,10 +33,16 @@ BenchmarkResult = collections.namedtuple('BenchmarkResult', [
     # Latencies.
     'average_latency_all',
     'median_latency_all',
+    'p99_latency_all',
+    'p999_latency_all',
     'average_latency_success',
     'median_latency_success',
+    'p99_latency_success',
+    'p999_latency_success',
     'average_latency_failure',
     'median_latency_failure',
+    'p99_latency_failure',
+    'p999_latency_failure',
     'follow_txn_avg_latency_success',
     'tweet_txn_avg_latency_success',
 
@@ -58,7 +64,21 @@ def median(xs):
     if len(xs) == 0:
         return 0
     else:
-        return xs[len(xs) / 2]
+        return xs[int(len(xs) / 2)]
+
+
+def p99(xs):
+    if len(xs) == 0:
+        return 0
+    else:
+        return xs[int(99 * float(len(xs) / 100))]
+
+
+def p999(xs):
+    if len(xs) == 0:
+        return 0
+    else:
+        return xs[int(999 * float(len(xs) / 1000))]
 
 
 def process_client_logs(client_log_filename, warmup_sec, duration_sec):
@@ -178,10 +198,16 @@ def process_client_logs(client_log_filename, warmup_sec, duration_sec):
 
         average_latency_all = mean(all_latencies),
         median_latency_all = median(all_latencies),
+        p99_latency_all = p99(all_latencies),
+        p999_latency_all = p999(all_latencies),
         average_latency_success = mean(success_latencies),
         median_latency_success = median(success_latencies),
+        p99_latency_success = p99(success_latencies),
+        p999_latency_success = p999(success_latencies),
         average_latency_failure = mean(failure_latencies),
         median_latency_failure = median(failure_latencies),
+        p99_latency_failure = p99(failure_latencies),
+        p999_latency_failure = p999(failure_latencies),
         follow_txn_avg_latency_success = mean(follow_txn_success_latencies),
         tweet_txn_avg_latency_success = mean(tweet_txn_success_latencies),
 
