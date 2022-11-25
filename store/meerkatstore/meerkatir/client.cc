@@ -38,10 +38,6 @@
 #include <limits.h>
 #include <thread>
 
-// TODO:
-#include <iostream>
-#include <chrono>
-
 namespace meerkatstore {
 namespace meerkatir {
 
@@ -106,17 +102,13 @@ Client::Begin()
 int
 Client::Get(const string &key, string &value)
 {
-    auto start = std::chrono::high_resolution_clock::now();
     Debug("GET [%lu : %s]", t_id, key.c_str());
 
     // Send the GET operation.
     Promise promise(GET_TIMEOUT);
     bclient->Get(key, &promise);
     value = promise.GetValue();
-    auto ret = promise.GetReply();
-    std::cout << "Get takes " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count() << std::endl;
-    return ret;
-    // return promise.GetReply();
+    return promise.GetReply();
 }
 
 string
@@ -131,17 +123,13 @@ Client::Get(const string &key)
 int
 Client::Put(const string &key, const string &value)
 {
-    auto start = std::chrono::high_resolution_clock::now();
     Debug("PUT [%lu : %s]", t_id, key.c_str());
 
     Promise promise(PUT_TIMEOUT);
 
     // Buffering, so no need to wait.
     bclient->Put(key, value, &promise);
-    auto ret = promise.GetReply();
-    std::cout << "Put takes " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count() << std::endl;
-    return ret;
-    // return promise.GetReply();
+    return promise.GetReply();
 }
 
 int
@@ -159,19 +147,16 @@ Client::Prepare(Timestamp &timestamp)
 bool
 Client::Commit()
 {
-    auto start = std::chrono::high_resolution_clock::now();
     Timestamp timestamp(timeServer.GetTime(), client_id);
     int status = Prepare(timestamp);
 
     if (status == REPLY_OK) {
         Debug("COMMIT [%lu]", t_id);
         bclient->Commit(timestamp);
-        std::cout << "Commit(succ) takes " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count() << std::endl;
         return true;
     }
 
     Abort();
-    std::cout << "Commit(abort) takes " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count() << std::endl;
     return false;
 }
 

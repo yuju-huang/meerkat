@@ -39,9 +39,6 @@
 
 #include <random>
 
-#include <iostream>
-#include <chrono>
-
 namespace replication {
 namespace meerkatir {
 
@@ -190,8 +187,6 @@ void Client::InvokeUnlogged(uint64_t txn_nr,
     reqBuf->req_nr = reqId;
     memcpy(reqBuf->key, request.c_str(), request.size());
     blocked = true;
-    std::cout << "[" <<  std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count() << "] SendRequestToReplica req_nr=" << reqId << std::endl;
-    fflush(stdout);
     transport->SendRequestToReplica(this,
                                     unloggedReqType,
                                     replicaIdx, core_id,
@@ -350,8 +345,6 @@ void Client::HandleUnloggedReply(char *respBuf) {
         return;
     }
 
-    std::cout << "[" <<  std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count() << "] HandleUnloggedReply req_nr=" << resp->req_nr << std::endl;
-    fflush(stdout);
     Debug("[%lu] Received unlogged reply", clientid);
 
     // delete timer event
