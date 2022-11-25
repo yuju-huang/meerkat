@@ -36,6 +36,9 @@
 
 #include "store/meerkatstore/meerkatir/server.h"
 
+#include <iostream>
+#include <chrono>
+
 namespace meerkatstore {
 namespace meerkatir {
 
@@ -102,6 +105,8 @@ void Server::UnloggedUpcall(char *reqBuf, char *respBuf, size_t &respLen) {
     std::pair<Timestamp, string> val;
 
     auto *req = reinterpret_cast<replication::meerkatir::unlogged_request_t *>(reqBuf);
+    std::cout << "[" <<  std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count() << "] Server::UnloggedUpcall req_nr=" << req->req_nr << std::endl;
+    fflush(stdout);
     std::string key = string(req->key, 64);
     int status = store->Get(key, val);
 
@@ -112,6 +117,8 @@ void Server::UnloggedUpcall(char *reqBuf, char *respBuf, size_t &respLen) {
     resp->timestamp = val.first.getTimestamp();
     resp->id = val.first.getID();
     memcpy(resp->value, val.second.c_str(), 64);
+    std::cout << "[" <<  std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count() << "] Server::UnloggedUpcall done req_nr=" << req->req_nr << std::endl;
+    fflush(stdout);
 }
 
 void
