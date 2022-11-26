@@ -5,7 +5,7 @@
 
 namespace testing {
 namespace internal {
-enum GTestColor { COLOR_DEFAULT, COLOR_RED, COLOR_GREEN, COLOR_YELLOW };
+//enum GTestColor { COLOR_DEFAULT, COLOR_RED, COLOR_GREEN, COLOR_YELLOW };
 
 extern void ColoredPrintf(GTestColor color, const char *fmt, ...);
 }  // namespace internal
@@ -17,7 +17,7 @@ extern void ColoredPrintf(GTestColor color, const char *fmt, ...);
                                      "[          ] ");                      \
     testing::internal::ColoredPrintf(testing::internal::COLOR_YELLOW,       \
                                      __VA_ARGS__);                          \
-    testing::internal::ColoredPrintf(testing::internal::COLOR_DEFAULT, ""); \
+    testing::internal::ColoredPrintf(testing::internal::COLOR_DEFAULT, " "); \
     fflush(stderr);                                                         \
     fflush(stdout);                                                         \
   } while (0)

@@ -166,7 +166,7 @@ void Rpc<TTr>::process_large_req_one_st(SSlot *sslot, const pkthdr_t *pkthdr) {
     char issue_msg[kMaxIssueMsgLen];
     sprintf(issue_msg,
             "Rpc %u, lsn %u: Received out-of-order request. "
-            "Req/pkt numbers: %zu/%zu (pkt), %zu/%zu (sslot). Action",
+            "Req/pkt numbers: %zu/%u (pkt), %zu/%zu (sslot). Action",
             rpc_id, sslot->session->local_session_num, pkthdr->req_num,
             pkthdr->pkt_num, sslot->cur_req_num, sslot->server_info.num_rx);
 

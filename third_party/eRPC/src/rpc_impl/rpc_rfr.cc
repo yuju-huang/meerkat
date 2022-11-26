@@ -39,7 +39,7 @@ void Rpc<TTr>::process_rfr_st(SSlot *sslot, const pkthdr_t *pkthdr) {
     char issue_msg[kMaxIssueMsgLen];
     sprintf(issue_msg,
             "Rpc %u, lsn %u (%s): Received out-of-order RFR. "
-            "Pkt = %zu/%zu. cur_req_num = %zu, num_rx = %zu. Action",
+            "Pkt = %lu/%u. cur_req_num = %lu, num_rx = %lu. Action",
             rpc_id, sslot->session->local_session_num,
             sslot->session->get_remote_hostname().c_str(), pkthdr->req_num,
             pkthdr->pkt_num, sslot->cur_req_num, si.num_rx);
