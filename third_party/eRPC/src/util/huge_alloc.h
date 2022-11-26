@@ -199,7 +199,7 @@ class HugeAlloc {
 
     // Use the Buffers at the back to improve locality
     Buffer buffer = freelist[size_class].back();
-    assert(buffer.class_size = class_max_size(size_class));
+    assert(buffer.class_size == class_max_size(size_class));
     freelist[size_class].pop_back();
 
     stats.user_alloc_tot += buffer.class_size;

@@ -38,8 +38,6 @@
 #include <iostream>
 #include <thread>
 
-#include <tbb/scalable_allocator.h>
-
 namespace meerkatstore {
 namespace leadermeerkatir {
 
