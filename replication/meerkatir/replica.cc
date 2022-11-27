@@ -6,6 +6,7 @@
  *
  **********************************************************************/
 
+#include "replication/common/consts.h"
 #include "replication/meerkatir/replica.h"
 
 #include <cstdint>
@@ -19,7 +20,8 @@ using namespace std;
 
 Replica::Replica(transport::Configuration config, int myIdx,
                      Transport *transport, AppReplica *app)
-    : config(std::move(config)), myIdx(myIdx), transport(transport), app(app)
+    : config(std::move(config)), myIdx(myIdx), transport(transport), app(app),
+      ziplogManager(zip::consts::rdma::DEFAULT_DEVICE, zip::consts::rdma::DEAULT_PORT)
 {
     if (transport != NULL) {
         transport->Register(this, myIdx);
@@ -27,6 +29,18 @@ Replica::Replica(transport::Configuration config, int myIdx,
         // we use this for micorbenchmarking, but still issue a warning
         Warning("NULL transport provided to the replication layer");
     }
+
+    const int id = 188;
+    const int ssn = 0; //zip::api::subscriber_intro::UNSPECIFIED_START;
+    const bool seq = true;
+    ziplogSubscriber = std::make_shared<zip::subscriber::subscriber>(
+        ziplogManager, kOrderAddr, id, ssn, seq,
+        [](zip::api::subscriber_log_entry& entry, void* ctx) {
+            Debug("Receive entry.gs=%ld, data_length=%ld\n", entry.gsn, entry.data_length);
+            auto replica = reinterpret_cast<Replica*>(ctx);
+            // replica->HandleConsensusRequest2(reinterpret_cast<char*>(entry.data));
+        },
+        this);
 }
 
 Replica::~Replica() { }

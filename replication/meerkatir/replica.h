@@ -19,6 +19,7 @@
 #include "replication/common/record.h"
 #include "replication/meerkatir/messages.h"
 
+#include "subscriber/subscriber.h"
 
 namespace replication {
 namespace meerkatir {
@@ -97,6 +98,10 @@ private:
     // The upcalls into the application now provide the old state of the
     // transaction and the app computes its next state;
     Record record;
+
+    // Ziplog data structures
+    zip::network::manager ziplogManager;
+    std::shared_ptr<zip::subscriber::subscriber> ziplogSubscriber;
 };
 
 } // namespace ir

@@ -32,6 +32,7 @@
 
 #include "lib/assert.h"
 #include "lib/message.h"
+#include "replication/common/consts.h"
 #include "replication/meerkatir/client.h"
 
 #include <sys/time.h>
@@ -49,7 +50,8 @@ Client::Client(const transport::Configuration &config,
                    uint64_t clientid)
     : config(config),
       lastReqId(0),
-      transport(transport) {
+      transport(transport),
+      ziplogManager(zip::consts::rdma::DEFAULT_DEVICE, zip::consts::rdma::DEAULT_PORT) {
 
     this->clientid = clientid;
     // Randomly generate a client ID
@@ -64,6 +66,14 @@ Client::Client(const transport::Configuration &config,
     }
 
     transport->Register(this, -1);
+
+    // Initialize ziplog
+    static constexpr int kNumCpus = 32;
+    static constexpr int kNumCpusPerNuma = kNumCpus / 2;
+    const int cpu_id = 2 * (clientid % kNumCpusPerNuma) + 1;
+    Assert(cpu_id < kNumCpus);
+    ziplogClient = std::make_shared<zip::client::client>(
+        ziplogManager, kOrderAddr, clientid, kZiplogShardId, cpu_id, /* rate */10000);
 }
 
 Client::~Client()

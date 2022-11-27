@@ -41,6 +41,8 @@
 #include <memory>
 #include <boost/unordered_map.hpp>
 
+#include "client/client.h"
+
 namespace replication {
 namespace meerkatir {
 
@@ -204,6 +206,10 @@ protected:
     Transport *transport;
     uint64_t clientid;
     bool blocked;
+
+    // Ziplog data structures
+    zip::network::manager ziplogManager;
+    std::shared_ptr<zip::client::client> ziplogClient;
 
     // `TransitionToConsensusSlowPath` is called after a timeout to end the
     // possibility of taking the fast path and transition into taking the slow

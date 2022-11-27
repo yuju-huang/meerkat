@@ -19,6 +19,11 @@ ERPC_LDFLAGS_RAW := -L $(ERPC_PATH)/build -lerpc -lnuma -ldl -lgflags -libverbs
 ERPC_CFLAGS_DPDK := -I $(ERPC_PATH)/src -I /usr/include/dpdk -DDPDK=true -march=native
 ERPC_LDFLAGS_DPDK := -L $(ERPC_PATH)/build -lerpc -lnuma -ldl -lgflags -ldpdk
 
+## Ziplog flags ##
+ZIPLOG_PATH= "./third_party/ziplog"
+ZIPLOG_CFLAGS := -I $(ZIPLOG_PATH)/src
+ZIPLOG_LDFLAGS := -L $(ZIPLOG_PATH)/build -lziplog_client -lziplog_subscriber
+
 CFLAGS_WARNINGS:= -Wno-unused-function -Wno-nested-anon-types -Wno-keyword-macro -Wno-uninitialized
 
 # -fno-omit-frame-pointer is needed to get accurate flame graphs. See [1] for
@@ -30,8 +35,8 @@ CXXFLAGS := -g -std=c++17
 LDFLAGS := -levent_pthreads -pthread -lboost_fiber -lboost_context -lboost_system -lboost_thread
 
 ## Add ERPC flags ##
-CFLAGS += $(ERPC_CFLAGS_RAW)
-LDFLAGS += $(ERPC_LDFLAGS_RAW)
+CFLAGS += $(ERPC_CFLAGS_RAW) $(ZIPLOG_CFLAGS)
+LDFLAGS += $(ERPC_LDFLAGS_RAW) $(ZIPLOG_LDFLAGS)
 
 ## Debian package: check ##
 #CHECK_CFLAGS := $(shell pkg-config --cflags check)
