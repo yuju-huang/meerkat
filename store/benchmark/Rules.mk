@@ -1,13 +1,9 @@
 d := $(dir $(lastword $(MAKEFILE_LIST)))
 
-SRCS += $(addprefix $(d), benchClient.cc retwisClient.cc terminalClient.cc)
+SRCS += $(addprefix $(d), retwisClient.cc)
 
-OBJS-all-clients := $(OBJS-meerkatstore-client) $(OBJS-meerkatstore-leader-client)
-
-$(d)benchClient: $(OBJS-all-clients) $(o)benchClient.o
+OBJS-all-clients := $(LIB-message) $(OBJS-meerkatstore-client) $(OBJS-meerkatstore-leader-client)
 
 $(d)retwisClient: $(OBJS-all-clients) $(o)retwisClient.o
 
-$(d)terminalClient: $(OBJS-all-clients) $(o)terminalClient.o
-
-BINS += $(d)benchClient $(d)retwisClient $(d)terminalClient
+BINS += $(d)retwisClient

@@ -1,6 +1,5 @@
 // -*- mode: c++; c-file-style: "k&r"; c-basic-offset: 4 -*-
-/***********************************************************************
- *
+/**********************************************************************
  * store/common/frontend/bufferclient.cc:
  *   Single shard buffering client implementation.
  *
@@ -29,12 +28,24 @@
  **********************************************************************/
 
 #include "store/common/frontend/bufferclient.h"
+#include "store/common/consts.h"
+#include "util/consts.h"
 
 using namespace std;
 
-BufferClient::BufferClient(TxnClient* txnclient) : txn()
+BufferClient::BufferClient()
+    : txn(),
+      ziplogManager(zip::consts::rdma::DEFAULT_DEVICE, zip::consts::rdma::DEAULT_PORT)
 {
-    this->txnclient = txnclient;
+    // TODO: Initialize ziplog
+/*
+    static constexpr int kNumCpus = 32;
+    static constexpr int kNumCpusPerNuma = kNumCpus / 2;
+    const int cpu_id = 2 * (clientid % kNumCpusPerNuma) + 1;
+    Assert(cpu_id < kNumCpus);
+    ziplogClient = std::make_shared<zip::client::client>(
+        ziplogManager, kOrderAddr, clientid, kZiplogShardId, cpu_id, kZiplogClientRate);
+*/
 }
 
 BufferClient::~BufferClient() { }
@@ -48,7 +59,6 @@ BufferClient::Begin(uint64_t tid, uint8_t core_id, uint8_t preferred_read_core_i
     this->tid = tid;
     this->core_id = core_id;
     this->preferred_read_core_id = preferred_read_core_id;
-    txnclient->Begin(tid);
 }
 
 /* Get value for a key.
@@ -76,7 +86,8 @@ BufferClient::Get(const string &key, Promise *promise)
     Promise p(GET_TIMEOUT);
     Promise *pp = (promise != NULL) ? promise : &p;
 
-    txnclient->Get(tid, preferred_read_core_id, key, pp);
+    // TODO
+    // txnclient->Get(tid, preferred_read_core_id, key, pp);
     if (pp->GetReply() == REPLY_OK) {
         Debug("Adding [%s] with ts %lu", key.c_str(), pp->GetTimestamp().getTimestamp());
         txn.addReadSet(key, pp->GetTimestamp());
@@ -98,30 +109,30 @@ BufferClient::Put(const string &key, const string &value, Promise *promise)
 void
 BufferClient::Prepare(const Timestamp &timestamp, Promise *promise)
 {
-    txnclient->Prepare(tid, core_id, txn, timestamp, promise);
+    // txnclient->Prepare(tid, core_id, txn, timestamp, promise);
 }
 
 void
 BufferClient::Commit(const Timestamp &timestamp, Promise *promise)
 {
-    txnclient->Commit(tid, core_id, txn, timestamp, promise);
+    // txnclient->Commit(tid, core_id, txn, timestamp, promise);
 }
 
 /* Aborts the ongoing transaction. */
 void
 BufferClient::Abort(Promise *promise)
 {
-    txnclient->Abort(tid, core_id, txn, promise);
+    // txnclient->Abort(tid, core_id, txn, promise);
 }
 
 void
 BufferClient::PrepareWrite(Promise *promise)
 {
-    txnclient->PrepareWrite(tid, txn, promise);
+    // txnclient->PrepareWrite(tid, txn, promise);
 }
 
 void
 BufferClient::PrepareRead(const Timestamp& timestamp, Promise *promise)
 {
-    txnclient->PrepareRead(tid, txn, timestamp, promise);
+    // txnclient->PrepareRead(tid, txn, timestamp, promise);
 }

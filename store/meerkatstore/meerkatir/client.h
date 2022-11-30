@@ -35,32 +35,22 @@
 
 #include "lib/assert.h"
 #include "lib/message.h"
-#include "lib/configuration.h"
-#include "lib/fasttransport.h"
-#include "replication/meerkatir/client.h"
 #include "store/common/timestamp.h"
 #include "store/common/truetime.h"
-#include "store/common/frontend/client.h"
 #include "store/common/frontend/bufferclient.h"
-#include "store/meerkatstore/meerkatir/shardclient.h"
 
 #include <thread>
-
-#include "client/client.h"
 
 namespace meerkatstore {
 namespace meerkatir {
 
-class Client : public ::Client
-{
+class Client {
 public:
-    Client(const transport::Configuration &config,
-        Transport *transport,
-        int nThreads,  int nShards,
+    Client(int nThreads,  int nShards,
         uint8_t closestReplica,
         uint8_t preferred_core_id,
         uint8_t preferred_read_core_id,
-        bool twopc, bool replicated, uint64_t id,
+        bool twopc, bool replicated,
         TrueTime timeserver = TrueTime(0,0));
     virtual ~Client();
 
@@ -97,7 +87,6 @@ private:
 
     // Prepare function
     int Prepare(Timestamp &timestamp);
-
 };
 
 } // namespace meerkatir

@@ -35,12 +35,13 @@
 #include "lib/message.h"
 #include "store/common/promise.h"
 #include "store/common/transaction.h"
-#include "store/common/frontend/txnclient.h"
+#include "network/manager.h"
+#include "client/client.h"
 
 class BufferClient
 {
 public:
-    BufferClient(TxnClient *txnclient);
+    BufferClient();
     ~BufferClient();
 
     // Begin a transaction with given tid.
@@ -69,8 +70,9 @@ public:
     const Transaction& GetTransaction() const { return txn; }
 
 private:
-    // Underlying single shard transaction client implementation.
-    TxnClient* txnclient;
+    // Ziplog data structures
+    zip::network::manager ziplogManager;
+    std::shared_ptr<zip::client::client> ziplogClient;
 
     // Transaction to keep track of read and write set.
     Transaction txn;

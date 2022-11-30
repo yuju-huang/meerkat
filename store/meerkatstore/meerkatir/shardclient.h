@@ -33,56 +33,49 @@
 #define _MEERKATSTORE_SHARDCLIENT_H_
 
 #include "lib/assert.h"
-#include "lib/configuration.h"
 #include "lib/message.h"
-#include "lib/transport.h"
 #include "replication/meerkatir/client.h"
 #include "store/common/timestamp.h"
 #include "store/common/transaction.h"
-#include "store/common/frontend/txnclient.h"
 
 #include <map>
 #include <string>
 
 namespace meerkatstore {
 
-class ShardClient : public TxnClient
+class ShardClient
 {
 public:
     /* Constructor needs path to shard config. */
-    ShardClient(const transport::Configuration &config,
-        Transport *transport,
-        uint64_t client_id,
+    ShardClient(uint64_t client_id,
         int shard,
         int closestReplica,
         bool replicated);
     ~ShardClient();
 
     // Overriding from TxnClient
-    void Begin(uint64_t txn_nr) override;
+    void Begin(uint64_t txn_nr);
     void Get(uint64_t txn_nr,
              uint8_t core_id,
              const std::string &key,
-             Promise *promise = NULL) override;
+             Promise *promise = NULL);
     void Prepare(uint64_t txn_nr,
                  uint8_t core_id,
                  const Transaction &txn,
                  const Timestamp &timestamp = Timestamp(),
-                 Promise *promise = NULL) override;
+                 Promise *promise = NULL);
     void Commit(uint64_t txn_nr,
                 uint8_t core_id,
                 const Transaction &txn,
                 const Timestamp &timestamp = Timestamp(),
-                Promise *promise = NULL) override;
+                Promise *promise = NULL);
     void Abort(uint64_t txn_nr,
                uint8_t core_id,
                const Transaction &txn,
-               Promise *promise = NULL) override;
+               Promise *promise = NULL);
 
 private:
-    transport::Configuration config;
     uint64_t client_id; // Unique ID for this client.
-    Transport *transport; // Transport layer (shared by multiple client fibers).
     int shard; // which shard this client accesses
     int replica; // which replica to use for reads
     bool replicated; // Is the database replicated?
@@ -93,6 +86,10 @@ private:
                             // until finished (limitation on transport --
                             // can't have more than one outstanding req,
                             // cause it uses the same send buffer)
+
+    // Ziplog data structures
+    zip::network::manager ziplogManager;
+    std::shared_ptr<zip::client::client> ziplogClient;
 
     void SendUnreplicated(uint64_t txn_nr,
                           uint8_t core_id,

@@ -111,7 +111,7 @@ def zookeeper_clients():
         #RemoteHost('10.100.5.138'): {'phys_port'  : 1}, # platypus-1g
         #RemoteHost('10.100.5.23') : {'phys_port'  : 0}, # rhinoceros-1g
         #RemoteHost('10.100.5.25') : {'phys_port'  : 0}, # sloth-1g
-        RemoteHost('192.168.99.21') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.18') : {'phys_port'  : 0},
         RemoteHost('192.168.99.20') : {'phys_port'  : 0},
         RemoteHost('192.168.99.24') : {'phys_port'  : 0},
         RemoteHost('192.168.99.25') : {'phys_port'  : 0},
@@ -138,7 +138,6 @@ def zookeeper_clients():
 
 def zookeeper_servers():
     return {
-        RemoteHost('192.168.99.21') : {'phys_port'  : 0},
         RemoteHost('192.168.99.28') : {'phys_port'  : 0},
         RemoteHost('192.168.99.29') : {'phys_port'  : 0},
         RemoteHost('192.168.99.30') : {'phys_port'  : 0},
@@ -350,7 +349,6 @@ def run_benchmark(bench_dir, clients, servers, parameters):
             #    "-c 10000",
             #    "-g",
             #    "--",
-            "LD_LIBRARY_PATH=/home/yh885/zipkat",
             parameters.server_binary,
             "--configFile", os.path.join(
                 parameters.config_file_directory,
@@ -402,7 +400,6 @@ def run_benchmark(bench_dir, clients, servers, parameters):
                 #"valgrind --leak-check=yes",
                 #"perf stat -B --delay 40000 -I 20000 -e cycles,instructions",
                 #"DEBUG=all",
-                "LD_LIBRARY_PATH=/home/yh885/zipkat",
                 parameters.client_binary,
                 "--configFile", os.path.join(
                     parameters.config_file_directory,
