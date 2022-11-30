@@ -1,4 +1,4 @@
-MEERKAT_PATH=/home/yh885/meerkat
+MEERKAT_PATH=/home/yh885/zipkat
 python3 e1_e2.py \
 		--server_binary ${MEERKAT_PATH}/meerkat_server   \
 		--client_binary ${MEERKAT_PATH}/retwisClient     \

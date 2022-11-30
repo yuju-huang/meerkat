@@ -187,9 +187,11 @@ Store::Prepare(txnid_t txn_id, const Transaction &txn, const Timestamp &timestam
         store->WriteUnlock(key);
 
         if (!valid) {
-    	    // clean-up metadata
+            // clean-up metadata
             clean_preparing_transaction(preparingTransaction);
-	        return REPLY_FAIL;
+            Abort(txn_id, txn);
+            Debug("Abort");
+            return REPLY_FAIL;
         }
     }
 
@@ -234,10 +236,14 @@ Store::Prepare(txnid_t txn_id, const Transaction &txn, const Timestamp &timestam
         if (!valid) {
             // clean-up metadata
             clean_preparing_transaction(preparingTransaction);
+            Abort(txn_id, txn);
+            Debug("Abort");
             return REPLY_FAIL;
         }
     }
 
+    Commit(txn_id, timestamp, txn);
+    Debug("Commit");
     return REPLY_OK;
 }
 

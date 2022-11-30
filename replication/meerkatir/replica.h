@@ -10,6 +10,9 @@
 #define _IR_REPLICA_H_
 
 #include <memory>
+#include <shared_mutex>
+#include <thread>
+#include <unordered_map>
 
 #include "lib/assert.h"
 #include "lib/configuration.h"
@@ -64,7 +67,7 @@ class Replica : TransportReceiver
 {
 public:
     Replica(transport::Configuration config, int myIdx,
-              Transport *transport, AppReplica *app);
+              Transport *transport, AppReplica *app, uint8_t thread_id);
     ~Replica();
 
     // Message handlers.
@@ -81,6 +84,10 @@ public:
     void HandleFinalizeConsensusRequest(char *reqBuf, char *respBuf, size_t &respLen);
 
     void PrintStats();
+
+    void AcceptThread();
+    void PollSubscriber();
+    void TryCommit(uint64_t gsn, char *reqBuf);
 
 private:
     transport::Configuration config;
@@ -102,6 +109,10 @@ private:
     // Ziplog data structures
     zip::network::manager ziplogManager;
     std::shared_ptr<zip::subscriber::subscriber> ziplogSubscriber;
+    // Send queues of clients for responsing Commit operations.
+    std::shared_mutex sendQueueLock;
+    std::unordered_map<uint64_t, zip::network::send_queue> sendQueues;
+    std::vector<std::thread> threads;
 };
 
 } // namespace ir

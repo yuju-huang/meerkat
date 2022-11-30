@@ -46,6 +46,8 @@
 
 #include <thread>
 
+#include "client/client.h"
+
 namespace meerkatstore {
 namespace meerkatir {
 
@@ -58,7 +60,7 @@ public:
         uint8_t closestReplica,
         uint8_t preferred_core_id,
         uint8_t preferred_read_core_id,
-        bool twopc, bool replicated,
+        bool twopc, bool replicated, uint64_t id,
         TrueTime timeserver = TrueTime(0,0));
     virtual ~Client();
 
@@ -95,6 +97,7 @@ private:
 
     // Prepare function
     int Prepare(Timestamp &timestamp);
+
 };
 
 } // namespace meerkatir

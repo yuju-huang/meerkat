@@ -49,9 +49,10 @@ Client::Client(const transport::Configuration &config,
                 uint8_t closestReplica,
                 uint8_t preferred_thread_id,
                 uint8_t preferred_read_thread_id,
-                bool twopc, bool replicated, TrueTime timeServer)
+                bool twopc, bool replicated, uint64_t id,
+                TrueTime timeServer)
     : t_id(0), preferred_thread_id(preferred_thread_id),
-      preferred_read_thread_id(preferred_read_thread_id),
+      preferred_read_thread_id(preferred_read_thread_id), client_id(id),
       timeServer(timeServer), core_dis(0, nsthreads -1)
 {
     // Initialize all state here;
@@ -61,9 +62,11 @@ Client::Client(const transport::Configuration &config,
     std::mt19937_64 gen(rd());
     std::uniform_int_distribution<uint64_t> dis(1, ULLONG_MAX);
 
+/*
     while (client_id == 0) {
         client_id = dis(gen);
     }
+*/
 
     // Standard mersenne_twister_engine seeded with rd()
     core_gen = std::mt19937(rd());
@@ -152,7 +155,7 @@ Client::Commit()
 
     if (status == REPLY_OK) {
         Debug("COMMIT [%lu]", t_id);
-        bclient->Commit(timestamp);
+//        bclient->Commit(timestamp);
         return true;
     }
 

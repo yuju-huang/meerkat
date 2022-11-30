@@ -150,7 +150,7 @@ int ShardClient::MeerkatDecide(const boost::unordered_map<int, std::size_t> &res
         }
     }
 
-    ASSERT(ok_count >= config->QuorumSize());
+    ASSERT(ok_count >= config.QuorumSize());
     // {
     //    final_reply.set_status(REPLY_OK);
     // } else {

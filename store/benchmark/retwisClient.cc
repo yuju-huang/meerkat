@@ -37,6 +37,10 @@ bool replicated = true;
 void client_fiber_func(int thread_id,
                 transport::Configuration config,
                 FastTransport *transport) {
+#ifdef ZIPLOG_NETWORK
+    Assert(!transport);
+    transport = new FastTransport(config, FLAGS_ip, FLAGS_numServerThreads, 0, FLAGS_physPort, 0, thread_id);
+#endif
     Client* client;
     vector<string> results;
 
@@ -87,6 +91,7 @@ void client_fiber_func(int thread_id,
                                             preferred_thread_id,
                                             local_preferred_read_thread_id,
                                             twopc, replicated,
+                                            global_thread_id,
                                             TrueTime(FLAGS_skew, FLAGS_error));
     } else if (FLAGS_mode == "meerkatstore-leader") {
         client = new meerkatstore::leadermeerkatir::Client(config,
@@ -123,6 +128,7 @@ void client_fiber_func(int thread_id,
     std::vector<int> keyIdx;
     int ttype; // Transaction type.
     int ret;
+    std::vector<long> latencies; 
     while (1) {
         keyIdx.clear();
         status = true;
@@ -210,6 +216,7 @@ void client_fiber_func(int thread_id,
         //commitLatency += ((t2.tv_sec - t3.tv_sec)*1000000 + (t2.tv_usec - t3.tv_usec));
 
         long latency = (t2.tv_sec - t1.tv_sec)*1000000 + (t2.tv_usec - t1.tv_usec);
+        latencies.push_back(latency);
 
         // log only the transactions that finished in the interval we actually measure
         if ((t2.tv_sec > FLAGS_secondsFromEpoch + FLAGS_warmup) &&
@@ -232,8 +239,12 @@ void client_fiber_func(int thread_id,
         fprintf(fp, "%s", line.c_str());
     }
 
+    std::sort(latencies.begin(), latencies.end());
     fprintf(fp, "# Commit_Ratio: %lf\n", (double)tCount/nTransactions);
     fprintf(fp, "# Overall_Latency: %lf\n", tLatency/tCount);
+    fprintf(fp, "# Mean Latency: %ld\n", latencies[latencies.size() * 50 / 100]);
+    fprintf(fp, "# p99 Latency: %ld\n", latencies[latencies.size() * 99 / 100]);
+    fprintf(fp, "# p999 Latency: %ld\n", latencies[latencies.size() * 999 / 1000]);
     fprintf(fp, "# Get: %d, %lf\n", getCount, getLatency/getCount);
     fprintf(fp, "# Commit: %d, %lf\n", commitCount, commitLatency/commitCount);
     fclose(fp);
@@ -313,7 +324,12 @@ int main(int argc, char **argv) {
     // FLAGS_numClientThreads client fibers
     std::vector<std::thread> client_thread_arr(FLAGS_numClientThreads);
     for (size_t i = 0; i < FLAGS_numClientThreads; i++) {
+#ifdef ZIPLOG_NETWORK
+        // Ziplog network needs to fork thread, so it can't use fiber.
+        client_thread_arr[i] = std::thread(client_fiber_func, i, config, nullptr);
+#else
         client_thread_arr[i] = std::thread(client_thread_func, i, config);
+#endif
         // uint8_t idx = i/2 + (i % 2) * 12;
         erpc::bind_to_core(client_thread_arr[i], 0, i);
     }

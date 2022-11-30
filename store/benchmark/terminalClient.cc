@@ -67,6 +67,7 @@ main(int argc, char **argv)
                                             0,
                                             0,
                                             false, true,
+                                            0,
                                             TrueTime(FLAGS_skew, FLAGS_error));
     } else if (FLAGS_mode == "meerkatstore-leader") {
         client = new meerkatstore::leadermeerkatir::Client(config,

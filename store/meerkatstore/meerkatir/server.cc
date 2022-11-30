@@ -85,6 +85,7 @@ void Server::ExecConsensusUpcall(txnid_t txn_id,
                                 crt_txn_state->ts,
                                 proposed);
         resp->status = status;
+        Debug("ExecConsensusUpcall status=%d\n", status);
 
         // TODO: merge status with transaction status
         if (status == REPLY_OK) {

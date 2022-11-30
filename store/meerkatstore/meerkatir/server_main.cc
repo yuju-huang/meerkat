@@ -70,7 +70,7 @@ void server_thread_func(meerkatstore::meerkatir::Server *server,
     replication::meerkatir::Replica *replica = new replication::meerkatir::Replica(
       config, FLAGS_replicaIndex,
       (FastTransport *)transport,
-      server);
+      server, thread_id);
 
     last_replica = replica;
     global_server = server;
@@ -166,7 +166,7 @@ main(int argc, char **argv)
     int ht_ct = boost::thread::hardware_concurrency();
     std::vector<std::thread> thread_arr(FLAGS_numServerThreads);
     //std::vector<std::thread> thread_arr(ht_ct);
-    static constexpr size_t kMaxThreads = 64;
+    static constexpr size_t kMaxThreads = 32;
     static constexpr size_t kNumNumas = 2;
     for (uint8_t i = 0; i < FLAGS_numServerThreads; i++) {
     //for (uint8_t i = 0; i < ht_ct; i++) {

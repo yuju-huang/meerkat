@@ -30,7 +30,8 @@ CFLAGS_WARNINGS:= -Wno-unused-function -Wno-nested-anon-types -Wno-keyword-macro
 # more information.
 #
 # [1]: http://www.brendangregg.com/perf.html#FlameGraphs
-CFLAGS := -Wall $(CFLAGS_WARNINGS) -iquote.obj/gen -O3 -DNASSERT -fno-omit-frame-pointer
+CFLAGS := -Wall $(CFLAGS_WARNINGS) -iquote.obj/gen -O3 -fno-omit-frame-pointer
+#CFLAGS := -Wall $(CFLAGS_WARNINGS) -iquote.obj/gen -O0 -DNASSERT -fno-omit-frame-pointer
 CXXFLAGS := -g -std=c++17
 LDFLAGS := -levent_pthreads -pthread -lboost_fiber -lboost_context -lboost_system -lboost_thread
 

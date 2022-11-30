@@ -210,6 +210,13 @@ protected:
     // Ziplog data structures
     zip::network::manager ziplogManager;
     std::shared_ptr<zip::client::client> ziplogClient;
+    // Connection to receive Commit result  
+    bool Receive(zip::network::buffer* buffer, size_t& length);
+    zip::network::manager networkManager;
+    zip::network::recv_queue recvQueue;
+    // vector to store all the buffers in use
+    std::vector<zip::network::buffer> inUseBuffers;
+    void Loop();
 
     // `TransitionToConsensusSlowPath` is called after a timeout to end the
     // possibility of taking the fast path and transition into taking the slow

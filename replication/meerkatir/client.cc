@@ -33,6 +33,7 @@
 #include "lib/assert.h"
 #include "lib/message.h"
 #include "replication/common/consts.h"
+#include "replication/common/ziplog_message.h"
 #include "replication/meerkatir/client.h"
 
 #include <sys/time.h>
@@ -40,23 +41,28 @@
 
 #include <random>
 
+// TODO
+#include <atomic>
+
 namespace replication {
 namespace meerkatir {
 
 using namespace std;
 
+std::thread t;
 Client::Client(const transport::Configuration &config,
                    Transport *transport,
                    uint64_t clientid)
     : config(config),
       lastReqId(0),
       transport(transport),
-      ziplogManager(zip::consts::rdma::DEFAULT_DEVICE, zip::consts::rdma::DEAULT_PORT) {
-
+      ziplogManager(zip::consts::rdma::DEFAULT_DEVICE, zip::consts::rdma::DEAULT_PORT),
+      networkManager(zip::consts::rdma::DEFAULT_DEVICE, zip::consts::rdma::DEAULT_PORT) {
     this->clientid = clientid;
     // Randomly generate a client ID
     // This is surely not the fastest way to get a random 64-bit int,
     // but it should be fine for this purpose.
+/*
     while (this->clientid == 0) {
         std::random_device rd;
         std::mt19937_64 gen(rd());
@@ -64,6 +70,7 @@ Client::Client(const transport::Configuration &config,
         this->clientid = dis(gen);
         Debug("Client ID: %lu", this->clientid);
     }
+*/
 
     transport->Register(this, -1);
 
@@ -73,12 +80,68 @@ Client::Client(const transport::Configuration &config,
     const int cpu_id = 2 * (clientid % kNumCpusPerNuma) + 1;
     Assert(cpu_id < kNumCpus);
     ziplogClient = std::make_shared<zip::client::client>(
-        ziplogManager, kOrderAddr, clientid, kZiplogShardId, cpu_id, /* rate */10000);
+        ziplogManager, kOrderAddr, clientid, kZiplogShardId, cpu_id, kZiplogClientRate);
+
+#ifdef ZIPLOG_NETWORK
+    // Connect to server
+    Debug("Client-%ld connect to server %s:%d\n", clientid, kServerIp.c_str(), kServerPort);
+    recvQueue = std::move(networkManager.create_recv_queues(1).front());
+
+    zip::api::client_intro intro;
+    intro.message_type = zip::api::CLIENT_INTRO;
+    intro.client_id = clientid;
+    auto [send_queue, buffer, length] =
+        networkManager.connect(kServerIp, kServerPort, &intro, intro.length());  
+    Assert(length == intro.length());
+
+    // create and post buffers on this receive queue
+    inUseBuffers = networkManager.get_buffers(zip::consts::PAGE_SIZE, zip::consts::rdma::NUM_RECEIVE_BUFFERS);
+    recvQueue.arm(inUseBuffers);
+
+    // TODO: remove, this works I don't know why
+/*
+    zip::network::buffer* recv_buf;
+    size_t l;
+    while (!recvQueue.recv(recv_buf, l));
+    auto& ack = recv_buf->as<commit_response>();
+    Assert(l == ack.length);
+    Debug("Client-%ld connect to server %s:%d done, magic txn_nr=%ld\n", clientid, kServerIp.c_str(), kServerPort, ack.txn_nr);
+    recvQueue.arm(*recv_buf);
+*/
+
+    t = std::thread(&Client::Loop, this);
+#endif
 }
 
 Client::~Client()
 {
 }
+
+#ifdef ZIPLOG_NETWORK
+void Client::Loop() {
+    // Receive response
+    zip::network::buffer* recv_buf;
+    size_t length;
+    while (true) {
+        if (recvQueue.recv(recv_buf, length)) {
+            auto req_type = recv_buf->as<uint64_t>();
+            switch (req_type) {
+                case COMMIT_RESPONSE:
+                {
+                    auto& res = recv_buf->as<commit_response>();
+                    Debug("Receive COMMIT_RESPONSE req_nr=%ld, txn_nr=%ld, status=%d\n", res.req_nr, res.txn_nr, res.status);
+                }
+                break;
+            default:
+                Assert(false);
+                Warning("Received an unknown type of message (%ld)", req_type);
+                Debug("Received an unknown type of message (%ld)", req_type);
+            }
+            recvQueue.arm(*recv_buf);
+        }
+    }
+}
+#endif
 
 // TODO: make this more general -- the replication layer must not do the app
 // message serialization as well
@@ -109,6 +172,7 @@ void Client::InvokeInconsistent(uint64_t txn_nr,
                                 sizeof(inconsistent_request_t));
 }
 
+std::atomic<char*> gRespBuf = nullptr;
 void Client::InvokeConsensus(uint64_t txn_nr,
                           uint8_t core_id,
                           const Transaction &txn,
@@ -142,6 +206,7 @@ void Client::InvokeConsensus(uint64_t txn_nr,
     size_t txnLen = txn.getReadSet().size() * sizeof(read_t) +
                     txn.getWriteSet().size() * sizeof(write_t);
     size_t reqLen = sizeof(consensus_request_header_t) + txnLen;
+#if 0
     auto *reqBuf = reinterpret_cast<consensus_request_header_t *>(
       transport->GetRequestBuf(
         reqLen,
@@ -155,12 +220,93 @@ void Client::InvokeConsensus(uint64_t txn_nr,
     reqBuf->client_id = clientid;
     reqBuf->nr_reads = txn.getReadSet().size();
     reqBuf->nr_writes = txn.getWriteSet().size();
-
     txn.serialize(reinterpret_cast<char *>(reqBuf + 1));
     blocked = true;
     transport->SendRequestToAll(this,
                                 consensusReqType,
                                 core_id, reqLen);
+#else
+    // TODO: buffer pool
+    // Send the request to ziplog
+    Assert(ziplogClient.get());
+    auto buffer = ziplogManager.get_buffer(
+        std::max(zip::consts::PAGE_SIZE, (sizeof(zip::api::storage_insert_after) + reqLen)));
+    auto& req = buffer.as<zip::api::storage_insert_after>();
+    req.data_length = reqLen;
+    req.gsn_after = -1;
+    auto *reqBuf = reinterpret_cast<consensus_request_header_t *>(req.data);
+    reqBuf->req_nr = reqId;
+    reqBuf->txn_nr = txn_nr;
+    reqBuf->id = timestamp.getID();
+    // timestamp is gsn
+    // reqBuf->timestamp = timestamp.getTimestamp();
+    reqBuf->client_id = clientid;
+    reqBuf->nr_reads = txn.getReadSet().size();
+    reqBuf->nr_writes = txn.getWriteSet().size();
+    txn.serialize(reinterpret_cast<char *>(reqBuf + 1));
+
+    blocked = true;
+    Debug("Send InsertAfter, req_nr=%ld, txn_id=%ld, client_id=%ld\n", reqId, txn_nr, clientid);
+    const auto gsn = ziplogClient->insert_after(buffer);
+    Debug("InsertAfter done, req_nr=%ld, txn_id=%ld, client_id=%ld, gsn=%ld\n", reqId, txn_nr, clientid, gsn);
+
+    // Receive response
+#ifdef ZIPLOG_NETWORK
+    zip::network::buffer* recv_buf;
+    size_t length;
+    while (!recvQueue.recv(recv_buf, length));
+    auto req_type = recv_buf->as<uint64_t>();
+    switch (req_type) {
+        case COMMIT_RESPONSE:
+        {
+            auto& res = recv_buf->as<commit_response>();
+            Assert(res.req_nr == reqId);
+            Assert(res.txn_nr == txn_nr);
+            Assert(length == res.length());
+            Debug("Receive COMMIT_RESPONSE req_nr=%ld, txn_nr=%ld, clientid=%ld, status=%d\n", res.req_nr, res.txn_nr, clientid, res.status);
+            crtConsensusReq.consensus_continuation(res.status);
+            crtConsensusReq.continuationInvoked = true;
+        }
+        break;
+        default:
+            Assert(false);
+            Warning("Received an unknown type of message (%ld)", req_type);
+            Debug("Received an unknown type of message (%ld)", req_type);
+    }
+
+    // request can be freed
+    recvQueue.arm(*recv_buf);
+    blocked = false;
+#else
+    // HACK: to leverage FastTransport, send a dump request
+    auto *reqBuf2 = reinterpret_cast<consensus_request_header_t *>(
+      transport->GetRequestBuf(
+        reqLen,
+        sizeof(consensus_response_t)
+      )
+    );
+    reqBuf2->req_nr = reqId;
+    reqBuf2->txn_nr = txn_nr;
+    Debug("SendRequestToAll\n");
+    transport->SendRequestToAll(this,
+                                consensusReqType,
+                                core_id, reqLen);
+    Debug("SendRequestToAll done\n");
+
+    char* respBuf = nullptr;
+    while (!respBuf) {
+        respBuf = gRespBuf.load(std::memory_order_acquire);
+    }
+    gRespBuf.store(nullptr, std::memory_order_relaxed);
+    auto *res = reinterpret_cast<consensus_response_t *>(respBuf);
+    Debug("Receive consensus_response req_nr=%ld, txn_nr=%ld, clientid=%ld, status=%d\n", res->req_nr, res->txn_nr, clientid, res->status);
+    Assert(res->req_nr == reqId);
+    Assert(res->txn_nr == txn_nr);
+    crtConsensusReq.consensus_continuation(res->status);
+    crtConsensusReq.continuationInvoked = true;
+    blocked = false;
+#endif
+#endif
 }
 
 void Client::InvokeUnlogged(uint64_t txn_nr,
@@ -372,6 +518,14 @@ void Client::HandleInconsistentReply(char *respBuf) {
 }
 
 void Client::HandleConsensusReply(char *respBuf) {
+#ifndef ZIPLOG_NETWORK
+    Debug("HandleConsensusReply\n");
+    blocked = false;
+    Assert(!gRespBuf);
+    gRespBuf.store(respBuf, std::memory_order_relaxed);
+#else
+    Assert(false);
+/*
     auto *resp = reinterpret_cast<consensus_response_t *>(respBuf);
 
     Debug(
@@ -421,6 +575,8 @@ void Client::HandleConsensusReply(char *respBuf) {
     } else if (!crtConsensusReq.on_slow_path && consensusReplyQuorum.size() >= config.FastQuorumSize()) {
         HandleFastPathConsensus();
     }
+*/
+#endif
 }
 
 void Client::HandleFinalizeConsensusReply(char *respBuf) {
