@@ -48,8 +48,8 @@ Client::Client(int nsthreads, int nShards,
                 uint8_t closestReplica,
                 uint8_t preferred_thread_id,
                 uint8_t preferred_read_thread_id,
-                bool twopc, bool replicated, TrueTime timeServer)
-    : t_id(0), preferred_thread_id(preferred_thread_id),
+                bool twopc, bool replicated, uint32_t id, TrueTime timeServer)
+    : client_id(id), t_id(0), preferred_thread_id(preferred_thread_id),
       preferred_read_thread_id(preferred_read_thread_id),
       timeServer(timeServer), core_dis(0, nsthreads -1)
 {
@@ -60,9 +60,11 @@ Client::Client(int nsthreads, int nShards,
     std::mt19937_64 gen(rd());
     std::uniform_int_distribution<uint64_t> dis(1, ULLONG_MAX);
 
+/*
     while (client_id == 0) {
         client_id = dis(gen);
     }
+*/
 
     // Standard mersenne_twister_engine seeded with rd()
     core_gen = std::mt19937(rd());
@@ -74,7 +76,7 @@ Client::Client(int nsthreads, int nShards,
 
     /* Start a client for each shard. */
     // TODO: assume just one shard for now!
-    bclient = new BufferClient();
+    bclient = new BufferClient(client_id);
 
     Debug("Meerkatstore client [%lu] created!", client_id);
 }

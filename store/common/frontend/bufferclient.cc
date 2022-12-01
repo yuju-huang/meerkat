@@ -33,19 +33,18 @@
 
 using namespace std;
 
-BufferClient::BufferClient()
-    : txn(),
-      ziplogManager(zip::consts::rdma::DEFAULT_DEVICE, zip::consts::rdma::DEAULT_PORT)
+BufferClient::BufferClient(uint32_t id)
+    : client_id(id), txn(),
+      ziplogManager(zip::consts::rdma::DEFAULT_DEVICE, zip::consts::rdma::DEAULT_PORT),
+      ziplogBuffer(ziplogManager.get_buffer(zip::consts::PAGE_SIZE))
 {
     // TODO: Initialize ziplog
-/*
     static constexpr int kNumCpus = 32;
     static constexpr int kNumCpusPerNuma = kNumCpus / 2;
-    const int cpu_id = 2 * (clientid % kNumCpusPerNuma) + 1;
+    const int cpu_id = 2 * (id % kNumCpusPerNuma) + 1;
     Assert(cpu_id < kNumCpus);
     ziplogClient = std::make_shared<zip::client::client>(
-        ziplogManager, kOrderAddr, clientid, kZiplogShardId, cpu_id, kZiplogClientRate);
-*/
+        ziplogManager, kOrderAddr, id, kZiplogShardId, cpu_id, kZiplogClientRate);
 }
 
 BufferClient::~BufferClient() { }
@@ -81,18 +80,25 @@ BufferClient::Get(const string &key, Promise *promise)
 //        txnclient->Get(tid, key, (txn.getReadSet().find(key))->second, promise);
 //        return;
 //    }
+    const auto leng = key.length();
+    auto& req = ziplogBuffer.as<zip::api::zipkat_get>();
+    req.message_type = zip::api::ZIPKAT_GET;
+    req.client_id = client_id;
+    req.gsn = 0;
+    req.data_length = leng;
+    memcpy(req.key, key.data(), leng);
+    Assert(req.length() < ziplogBuffer.length());
 
-    // Otherwise, get latest value from server.
-    Promise p(GET_TIMEOUT);
-    Promise *pp = (promise != NULL) ? promise : &p;
-
-    // TODO
-    // txnclient->Get(tid, preferred_read_core_id, key, pp);
-    if (pp->GetReply() == REPLY_OK) {
-        Debug("Adding [%s] with ts %lu", key.c_str(), pp->GetTimestamp().getTimestamp());
-        txn.addReadSet(key, pp->GetTimestamp());
+    static std::string empty;
+    std::string value;
+    uint64_t timestamp;
+    Assert(ziplogClient.get());
+    if (ziplogClient->zipkat_get(ziplogBuffer, value, timestamp)) {
+        Debug("Adding [%s] with ts %lu", key.c_str(), timestamp);
+    } else {
+        Debug("%s not found", key.c_str());
+        promise->Reply(REPLY_FAIL);
     }
-    // TODO: do we just ignore a REPLY_TIMEOUT?
 }
 
 /* Set value for a key. (Always succeeds).

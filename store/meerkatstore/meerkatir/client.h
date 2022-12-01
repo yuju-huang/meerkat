@@ -51,6 +51,7 @@ public:
         uint8_t preferred_core_id,
         uint8_t preferred_read_core_id,
         bool twopc, bool replicated,
+        uint32_t id,
         TrueTime timeserver = TrueTime(0,0));
     virtual ~Client();
 
@@ -66,7 +67,7 @@ public:
 
 private:
     // Unique ID for this client.
-    uint64_t client_id;
+    const uint64_t client_id;
 
     // Ongoing transaction ID.
     uint64_t t_id;

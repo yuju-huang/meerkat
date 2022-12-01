@@ -41,7 +41,7 @@
 class BufferClient
 {
 public:
-    BufferClient();
+    BufferClient(uint32_t id);
     ~BufferClient();
 
     // Begin a transaction with given tid.
@@ -70,12 +70,15 @@ public:
     const Transaction& GetTransaction() const { return txn; }
 
 private:
-    // Ziplog data structures
-    zip::network::manager ziplogManager;
-    std::shared_ptr<zip::client::client> ziplogClient;
+    const uint32_t client_id;
 
     // Transaction to keep track of read and write set.
     Transaction txn;
+
+    // Ziplog data structures
+    zip::network::manager ziplogManager;
+    std::shared_ptr<zip::client::client> ziplogClient;
+    zip::network::buffer ziplogBuffer;
 
     // Unique transaction id to keep track of ongoing transaction.
     uint64_t tid;

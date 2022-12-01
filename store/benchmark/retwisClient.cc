@@ -82,6 +82,7 @@ void client_fiber_func(int thread_id) {
                                         preferred_thread_id,
                                         local_preferred_read_thread_id,
                                         twopc, replicated,
+                                        global_thread_id,
                                         TrueTime(FLAGS_skew, FLAGS_error));
 
     struct timeval t0, t1, t2;
