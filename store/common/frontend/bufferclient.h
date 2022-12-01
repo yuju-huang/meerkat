@@ -54,7 +54,7 @@ public:
     void Put(const std::string &key, const std::string &value, Promise *promise = NULL);
 
     // Prepare (Spanner requires a prepare timestamp)
-    void Prepare(const Timestamp &timestamp = Timestamp(), Promise *promise = NULL);
+    void Prepare(Promise *promise = NULL);
 
     // Commit the ongoing transaction.
     void Commit(const Timestamp &timestamp = Timestamp(), Promise *promise = NULL);

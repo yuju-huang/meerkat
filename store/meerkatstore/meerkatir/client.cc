@@ -133,11 +133,11 @@ Client::Put(const string &key, const string &value)
 }
 
 int
-Client::Prepare(Timestamp &timestamp)
+Client::Prepare()
 {
-    Debug("PREPARE [%lu] at %lu", t_id, timestamp.getTimestamp());
+    Debug("PREPARE [%lu] ", t_id);
     Promise *promise = new Promise(PREPARE_TIMEOUT);
-    bclient->Prepare(timestamp, promise);
+    bclient->Prepare(promise);
     int status = promise->GetReply();
     delete promise;
     return status;
@@ -147,12 +147,11 @@ Client::Prepare(Timestamp &timestamp)
 bool
 Client::Commit()
 {
-    Timestamp timestamp(timeServer.GetTime(), client_id);
-    int status = Prepare(timestamp);
+    int status = Prepare();
 
     if (status == REPLY_OK) {
-        Debug("COMMIT [%lu]", t_id);
-        bclient->Commit(timestamp);
+//        Debug("COMMIT [%lu]", t_id);
+//        bclient->Commit(timestamp);
         return true;
     }
 

@@ -87,7 +87,7 @@ private:
     std::uniform_int_distribution<uint32_t> core_dis;
 
     // Prepare function
-    int Prepare(Timestamp &timestamp);
+    int Prepare();
 };
 
 } // namespace meerkatir

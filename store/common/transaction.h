@@ -40,6 +40,19 @@ enum TransactionStatus {
     ABORTED
 };
 
+// transations are serialized to a buffer containing arrays
+// of these structures:
+struct read_t {
+        uint64_t timestamp;
+        uint64_t id;
+        char key[64];
+};
+
+struct write_t {
+        char key[64];
+        char value[64];
+};
+
 typedef std::unordered_map<std::string, Timestamp> ReadSetMap;
 typedef std::unordered_map<std::string, std::string> WriteSetMap;
 
@@ -68,19 +81,9 @@ public:
     void addWriteSet(const std::string &key, const std::string &value);
     void serialize(char *reqBuf) const;
     void clear();
-};
-
-// transations are serialized to a buffer containing arrays
-// of these structures:
-struct read_t {
-        uint64_t timestamp;
-        uint64_t id;
-        char key[64];
-};
-
-struct write_t {
-        char key[64];
-        char value[64];
+    unsigned long serializedSize() {
+        return readSet.size() * sizeof(read_t) + writeSet.size() * sizeof(write_t);
+    }
 };
 
 #endif /* _TRANSACTION_H_ */

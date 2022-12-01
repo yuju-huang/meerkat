@@ -113,32 +113,54 @@ BufferClient::Put(const string &key, const string &value, Promise *promise)
 
 /* Prepare the transaction. */
 void
-BufferClient::Prepare(const Timestamp &timestamp, Promise *promise)
+BufferClient::Prepare(Promise *promise)
 {
     // txnclient->Prepare(tid, core_id, txn, timestamp, promise);
+    size_t txnLen = txn.serializedSize();
+    auto& req = ziplogBuffer.as<zip::api::storage_insert_after>();
+    req.message_type = zip::api::STORAGE_INSERT_AFTER;
+    req.client_id = client_id;
+    req.gsn_after = 0;
+    req.num_slots = 1;
+    auto commit_req = reinterpret_cast<zip::api::zipkat_commit_request*>(req.data);
+    commit_req->data_length = txnLen;
+    commit_req->nr_reads = txn.getReadSet().size();
+    commit_req->nr_writes = txn.getWriteSet().size();
+    txn.serialize((char*)commit_req->data);
+    req.data_length = commit_req->length();
+
+    Assert(req.length() < ziplogBuffer.length());
+    Assert(ziplogClient.get());
+    if (ziplogClient->insert_after(ziplogBuffer)) {
+        Debug("Commit OK!");
+        promise->Reply(REPLY_OK);
+    } else {
+        Debug("Commit FAIL!");
+        promise->Reply(REPLY_FAIL);
+    }
 }
 
 void
 BufferClient::Commit(const Timestamp &timestamp, Promise *promise)
 {
-    // txnclient->Commit(tid, core_id, txn, timestamp, promise);
+    Assert(false);
 }
 
 /* Aborts the ongoing transaction. */
 void
 BufferClient::Abort(Promise *promise)
 {
-    // txnclient->Abort(tid, core_id, txn, promise);
+    Assert(false);
 }
 
 void
 BufferClient::PrepareWrite(Promise *promise)
 {
-    // txnclient->PrepareWrite(tid, txn, promise);
+    Assert(false);
 }
 
 void
 BufferClient::PrepareRead(const Timestamp& timestamp, Promise *promise)
 {
-    // txnclient->PrepareRead(tid, txn, timestamp, promise);
+    Assert(false);
 }
