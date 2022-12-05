@@ -16,6 +16,8 @@
 #include <signal.h>
 #include <random>
 
+#include <iostream>
+
 using namespace std;
 
 // Function to pick a random key according to some distribution.
@@ -49,10 +51,12 @@ void client_fiber_func(int thread_id) {
     key_dis = std::uniform_int_distribution<uint32_t>(0, FLAGS_numKeys - 1);
 
     // Open file to dump results
-    uint32_t global_client_id = FLAGS_nhost * 1000 + FLAGS_ncpu * FLAGS_numClientThreads + thread_id;
-    FILE* fp = fopen((FLAGS_logPath + "/client." + std::to_string(global_client_id) + ".log").c_str(), "w");
+    //uint32_t global_client_id = FLAGS_nhost * 1000 + FLAGS_ncpu * FLAGS_numClientThreads + thread_id;
+    //FILE* fp = fopen((FLAGS_logPath + "/client." + std::to_string(global_client_id) + ".log").c_str(), "w");
     uint32_t global_thread_id = FLAGS_nhost * FLAGS_numClientThreads *FLAGS_numClientFibers + thread_id;
+    FILE* fp = fopen((FLAGS_logPath + "/client." + std::to_string(global_thread_id) + ".log").c_str(), "w");
 
+    std::cout << "Start RetwisClient-" << global_thread_id << std::endl;
     // Trying to distribute as equally as possible the clients on the
     // replica cores.
 
@@ -75,7 +79,7 @@ void client_fiber_func(int thread_id) {
 
     //fprintf(stderr, "global_thread_id = %d; localReplica = %d\n", global_thread_id, localReplica);
     Assert(FLAGS_mode == "meerkatstore");
-    auto client = new meerkatstore::meerkatir::Client(
+    auto client = std::make_unique<meerkatstore::meerkatir::Client>(
                                         FLAGS_numServerThreads,
                                         FLAGS_numShards,
                                         localReplica,
@@ -219,6 +223,7 @@ void client_fiber_func(int thread_id) {
     fprintf(fp, "# Get: %d, %lf\n", getCount, getLatency/getCount);
     fprintf(fp, "# Commit: %d, %lf\n", commitCount, commitLatency/commitCount);
     fclose(fp);
+    std::cout << "RetwisClient client-" << global_thread_id << " done\n";
 }
 
 void* client_thread_func(int thread_id) {
@@ -246,6 +251,7 @@ void segfault_sigaction(int signal, siginfo_t *si, void *arg)
 int main(int argc, char **argv) {
     gflags::ParseCommandLineFlags(&argc, &argv, true);
 
+/*
     struct sigaction sa;
 
     memset(&sa, 0, sizeof(struct sigaction));
@@ -254,6 +260,7 @@ int main(int argc, char **argv) {
     sa.sa_flags   = SA_SIGINFO;
 
     sigaction(SIGSEGV, &sa, NULL);
+*/
 
     // initialize the uniform distribution
     std::random_device rd;
@@ -278,7 +285,8 @@ int main(int argc, char **argv) {
     // FLAGS_numClientThreads client fibers
     std::vector<std::thread> client_thread_arr(FLAGS_numClientThreads);
     for (size_t i = 0; i < FLAGS_numClientThreads; i++) {
-        client_thread_arr[i] = std::thread(client_thread_func, i);
+        // client_thread_arr[i] = std::thread(client_thread_func, i);
+        client_thread_arr[i] = std::thread(client_fiber_func, i);
         // uint8_t idx = i/2 + (i % 2) * 12;
         // erpc::bind_to_core(client_thread_arr[i], 0, i);
     }

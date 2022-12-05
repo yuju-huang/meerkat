@@ -44,7 +44,6 @@ enum TransactionStatus {
 // of these structures:
 struct read_t {
         uint64_t timestamp;
-        uint64_t id;
         char key[64];
 };
 

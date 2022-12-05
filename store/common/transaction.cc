@@ -17,7 +17,7 @@ Transaction::Transaction() :
 Transaction::Transaction(uint8_t nr_reads, uint8_t nr_writes, char* buf) {
     auto *read_ptr = reinterpret_cast<read_t *> (buf);
     for (int i = 0; i < nr_reads; i++) {
-        readSet[std::string(read_ptr->key, 64)] = Timestamp(read_ptr->timestamp, read_ptr->id);
+        readSet[std::string(read_ptr->key, 64)] = Timestamp(read_ptr->timestamp);
         read_ptr++;
     }
 
@@ -59,7 +59,6 @@ Transaction::addWriteSet(const string &key,
 void Transaction::serialize(char *reqBuf) const {
     auto *read_ptr = reinterpret_cast<read_t *> (reqBuf);
     for (auto read : readSet) {
-        read_ptr->id = read.second.getID();
         read_ptr->timestamp = read.second.getTimestamp();
         std::memcpy(read_ptr->key, read.first.c_str(), 64);
         read_ptr++;

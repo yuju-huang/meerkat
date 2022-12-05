@@ -34,10 +34,13 @@
 #include "store/common/consts.h"
 #include "store/meerkatstore/meerkatir/client.h"
 
+#include <chrono>
 #include <random>
 #include <list>
 #include <limits.h>
 #include <thread>
+
+#include <iostream>
 
 namespace meerkatstore {
 namespace meerkatir {
@@ -51,6 +54,7 @@ Client::Client(int nsthreads, int nShards,
                 bool twopc, bool replicated, uint32_t id, TrueTime timeServer)
     : client_id(id), t_id(0), preferred_thread_id(preferred_thread_id),
       preferred_read_thread_id(preferred_read_thread_id),
+      bclient(std::make_unique<BufferClient>(client_id)),
       timeServer(timeServer), core_dis(0, nsthreads -1)
 {
     // Initialize all state here;
@@ -67,16 +71,12 @@ Client::Client(int nsthreads, int nShards,
 */
 
     // Standard mersenne_twister_engine seeded with rd()
-    core_gen = std::mt19937(rd());
+    // core_gen = std::mt19937(rd());
 
     Warning("Initializing Meerkatstore client with id [%lu]; preferred_thread = %d,"
           "read_replica = %d, preferred_read_thread = %d",
           client_id, preferred_thread_id,
           closestReplica, preferred_read_thread_id);
-
-    /* Start a client for each shard. */
-    // TODO: assume just one shard for now!
-    bclient = new BufferClient(client_id);
 
     Debug("Meerkatstore client [%lu] created!", client_id);
 }
@@ -102,12 +102,15 @@ Client::Begin()
 int
 Client::Get(const string &key, string &value)
 {
+    auto start = std::chrono::high_resolution_clock::now();
     Debug("GET [%lu : %s]", t_id, key.c_str());
+    
 
     // Send the GET operation.
     Promise promise(GET_TIMEOUT);
     bclient->Get(key, &promise);
     value = promise.GetValue();
+    std::cout << "Get takes " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count() << std::endl;
     return promise.GetReply();
 }
 
@@ -132,6 +135,8 @@ Client::Put(const string &key, const string &value)
     return promise.GetReply();
 }
 
+// This calls TryCommit, which will Commit if validation passes.
+// TODO: make better method name.
 int
 Client::Prepare()
 {
@@ -147,15 +152,23 @@ Client::Prepare()
 bool
 Client::Commit()
 {
+#ifdef MEASURE
+    auto start = std::chrono::high_resolution_clock::now();
+#endif
     int status = Prepare();
 
     if (status == REPLY_OK) {
-//        Debug("COMMIT [%lu]", t_id);
-//        bclient->Commit(timestamp);
+        Debug("COMMIT [%lu]", t_id);
+#ifdef MEASURE
+        std::cout << "Commit succ takes " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count() << std::endl;
+#endif
         return true;
     }
 
-    Abort();
+#ifdef MEASURE
+    std::cout << "Commit abort takes " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count() << std::endl;
+#endif
+    Debug("ABORT [%lu]", t_id);
     return false;
 }
 

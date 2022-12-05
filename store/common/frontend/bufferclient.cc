@@ -43,6 +43,7 @@ BufferClient::BufferClient(uint32_t id)
     static constexpr int kNumCpusPerNuma = kNumCpus / 2;
     const int cpu_id = 2 * (id % kNumCpusPerNuma) + 1;
     Assert(cpu_id < kNumCpus);
+    Debug("kOrderAddr=%s\n", kOrderAddr.c_str());
     ziplogClient = std::make_shared<zip::client::client>(
         ziplogManager, kOrderAddr, id, kZiplogShardId, cpu_id, kZiplogClientRate);
 }
@@ -95,6 +96,7 @@ BufferClient::Get(const string &key, Promise *promise)
     Assert(ziplogClient.get());
     if (ziplogClient->zipkat_get(ziplogBuffer, value, timestamp)) {
         Debug("Adding [%s] with ts %lu", key.c_str(), timestamp);
+        txn.addReadSet(key, timestamp);
     } else {
         Debug("%s not found", key.c_str());
         promise->Reply(REPLY_FAIL);
@@ -131,13 +133,8 @@ BufferClient::Prepare(Promise *promise)
 
     Assert(req.length() < ziplogBuffer.length());
     Assert(ziplogClient.get());
-    if (ziplogClient->insert_after(ziplogBuffer)) {
-        Debug("Commit OK!");
-        promise->Reply(REPLY_OK);
-    } else {
-        Debug("Commit FAIL!");
-        promise->Reply(REPLY_FAIL);
-    }
+    const auto result = ziplogClient->insert_after(ziplogBuffer);
+    promise->Reply(result.second);
 }
 
 void
@@ -150,7 +147,7 @@ BufferClient::Commit(const Timestamp &timestamp, Promise *promise)
 void
 BufferClient::Abort(Promise *promise)
 {
-    Assert(false);
+    // Do nothing.
 }
 
 void

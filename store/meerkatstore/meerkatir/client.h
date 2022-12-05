@@ -39,6 +39,7 @@
 #include "store/common/truetime.h"
 #include "store/common/frontend/bufferclient.h"
 
+#include <memory>
 #include <thread>
 
 namespace meerkatstore {
@@ -77,7 +78,7 @@ private:
     uint8_t preferred_read_thread_id;
 
     // Buffering client.
-    BufferClient *bclient;
+    std::unique_ptr<BufferClient> bclient;
 
     // TrueTime server.
     TrueTime timeServer;
