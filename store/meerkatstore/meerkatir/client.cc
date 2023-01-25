@@ -42,20 +42,18 @@
 
 #include <iostream>
 
+// #define MEASURE 1
+
 namespace meerkatstore {
 namespace meerkatir {
 
 using namespace std;
 
-Client::Client(int nsthreads, int nShards,
-                uint8_t closestReplica,
-                uint8_t preferred_thread_id,
-                uint8_t preferred_read_thread_id,
-                bool twopc, bool replicated, uint32_t id, TrueTime timeServer)
-    : client_id(id), t_id(0), preferred_thread_id(preferred_thread_id),
-      preferred_read_thread_id(preferred_read_thread_id),
-      bclient(std::make_unique<BufferClient>(client_id)),
-      timeServer(timeServer), core_dis(0, nsthreads -1)
+Client::Client(int nsthreads, int nShards, uint32_t id,
+               std::shared_ptr<zip::client::client> client, zip::network::buffer&& buffer)
+    : client_id(id), t_id(0),
+      ziplogClient(client),
+      ziplogBuffer(std::move(buffer))
 {
     // Initialize all state here;
     srand(time(NULL));
@@ -73,16 +71,9 @@ Client::Client(int nsthreads, int nShards,
     // Standard mersenne_twister_engine seeded with rd()
     // core_gen = std::mt19937(rd());
 
-    Warning("Initializing Meerkatstore client with id [%lu]; preferred_thread = %d,"
-          "read_replica = %d, preferred_read_thread = %d",
-          client_id, preferred_thread_id,
-          closestReplica, preferred_read_thread_id);
+    Warning("Initializing Meerkatstore client with id [%lu]", client_id);
 
     Debug("Meerkatstore client [%lu] created!", client_id);
-}
-
-Client::~Client()
-{
 }
 
 /* Begins a transaction. All subsequent operations before a commit() or
@@ -94,28 +85,54 @@ void
 Client::Begin()
 {
     Debug("BEGIN [%lu]", t_id + 1);
+    // Initialize data structures.
+    txn = Transaction();
     t_id++;
-    bclient->Begin(t_id, preferred_thread_id, preferred_read_thread_id);
 }
 
 /* Returns the value corresponding to the supplied key. */
-int
-Client::Get(const string &key, string &value)
+int Client::Get(const string &key, string &value)
 {
+#ifdef MEASURE
     auto start = std::chrono::high_resolution_clock::now();
+#endif
     Debug("GET [%lu : %s]", t_id, key.c_str());
     
+    // Read your own writes, check the write set first.
+    if (txn.getWriteSet().find(key) != txn.getWriteSet().end()) {
+        value = txn.getWriteSet().find(key)->second;
+        return REPLY_OK;
+    }
 
     // Send the GET operation.
-    Promise promise(GET_TIMEOUT);
-    bclient->Get(key, &promise);
-    value = promise.GetValue();
+    const auto leng = key.length();
+    auto& req = ziplogBuffer.as<zip::api::zipkat_get>();
+    req.message_type = zip::api::ZIPKAT_GET;
+    req.client_id = ziplogClient->client_id();
+    req.gsn = 0;
+    req.data_length = leng;
+    memcpy(req.key, key.data(), leng);
+    Assert(req.length() < ziplogBuffer.length());
+
+    static std::string empty;
+    uint64_t timestamp;
+    Assert(ziplogClient.get());
+    const bool succ = ziplogClient->zipkat_get(ziplogBuffer, value, timestamp);
+#ifdef MEASURE
     std::cout << "Get takes " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count() << std::endl;
-    return promise.GetReply();
+#endif
+
+    if (succ) {
+        Debug("Adding [%s] with ts %lu", key.c_str(), timestamp);
+        txn.addReadSet(key, timestamp);
+        return REPLY_OK;
+    } else {
+        Debug("%s not found", key.c_str());
+        return REPLY_FAIL;
+    }
 }
 
-string
-Client::Get(const string &key)
+string Client::Get(const string &key)
 {
     string value;
     Get(key, value);
@@ -123,34 +140,40 @@ Client::Get(const string &key)
 }
 
 /* Sets the value corresponding to the supplied key. */
-int
-Client::Put(const string &key, const string &value)
+int Client::Put(const string &key, const string &value)
 {
     Debug("PUT [%lu : %s]", t_id, key.c_str());
-
-    Promise promise(PUT_TIMEOUT);
-
-    // Buffering, so no need to wait.
-    bclient->Put(key, value, &promise);
-    return promise.GetReply();
+    // Update the write set.
+    txn.addWriteSet(key, value);
+    return REPLY_OK;
 }
 
 // This calls TryCommit, which will Commit if validation passes.
 // TODO: make better method name.
-int
-Client::Prepare()
+int Client::Prepare()
 {
     Debug("PREPARE [%lu] ", t_id);
-    Promise *promise = new Promise(PREPARE_TIMEOUT);
-    bclient->Prepare(promise);
-    int status = promise->GetReply();
-    delete promise;
-    return status;
+    size_t txnLen = txn.serializedSize();
+    auto& req = ziplogBuffer.as<zip::api::storage_insert_after>();
+    req.message_type = zip::api::STORAGE_INSERT_AFTER;
+    req.client_id = client_id;
+    req.gsn_after = 0;
+    req.num_slots = 1;
+    auto commit_req = reinterpret_cast<zip::api::zipkat_commit_request*>(req.data);
+    commit_req->data_length = txnLen;
+    commit_req->nr_reads = txn.getReadSet().size();
+    commit_req->nr_writes = txn.getWriteSet().size();
+    txn.serialize((char*)commit_req->data);
+    req.data_length = commit_req->length();
+
+    Assert(req.length() < ziplogBuffer.length());
+    Assert(ziplogClient.get());
+    const auto result = ziplogClient->insert_after(ziplogBuffer);
+    return result.second;
 }
 
 /* Attempts to commit the ongoing transaction. */
-bool
-Client::Commit()
+bool Client::Commit()
 {
 #ifdef MEASURE
     auto start = std::chrono::high_resolution_clock::now();
@@ -177,12 +200,11 @@ void
 Client::Abort()
 {
     Debug("ABORT [%lu]", t_id);
-    bclient->Abort();
+    // Do nothing.
 }
 
 /* Return statistics of most recent transaction. */
-vector<int>
-Client::Stats()
+vector<int> Client::Stats()
 {
     vector<int> v;
     return v;

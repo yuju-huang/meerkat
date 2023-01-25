@@ -43,7 +43,6 @@ BufferClient::BufferClient(uint32_t id)
     static constexpr int kNumCpusPerNuma = kNumCpus / 2;
     const int cpu_id = 2 * (id % kNumCpusPerNuma) + 1;
     Assert(cpu_id < kNumCpus);
-    Debug("kOrderAddr=%s\n", kOrderAddr.c_str());
     ziplogClient = std::make_shared<zip::client::client>(
         ziplogManager, kOrderAddr, id, kZiplogShardId, cpu_id, kZiplogClientRate);
 }
@@ -52,13 +51,11 @@ BufferClient::~BufferClient() { }
 
 /* Begins a transaction. */
 void
-BufferClient::Begin(uint64_t tid, uint8_t core_id, uint8_t preferred_read_core_id)
+BufferClient::Begin(uint64_t tid)
 {
     // Initialize data structures.
     txn = Transaction();
     this->tid = tid;
-    this->core_id = core_id;
-    this->preferred_read_core_id = preferred_read_core_id;
 }
 
 /* Get value for a key.
@@ -117,7 +114,6 @@ BufferClient::Put(const string &key, const string &value, Promise *promise)
 void
 BufferClient::Prepare(Promise *promise)
 {
-    // txnclient->Prepare(tid, core_id, txn, timestamp, promise);
     size_t txnLen = txn.serializedSize();
     auto& req = ziplogBuffer.as<zip::api::storage_insert_after>();
     req.message_type = zip::api::STORAGE_INSERT_AFTER;

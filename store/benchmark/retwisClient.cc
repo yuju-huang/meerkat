@@ -6,6 +6,7 @@
  *
  **********************************************************************/
 
+#include "store/common/consts.h"
 #include "store/common/truetime.h"
 #include "store/common/frontend/client.h"
 #include "store/meerkatstore/meerkatir/client.h"
@@ -35,7 +36,8 @@ thread_local std::uniform_int_distribution<uint32_t> key_dis;
 bool twopc = false;
 bool replicated = true;
 
-void client_fiber_func(int thread_id) {
+void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplogClient,
+                       zip::network::buffer&& ziplogBuffer) {
     vector<string> results;
 
     std::mt19937 core_gen;
@@ -80,15 +82,8 @@ void client_fiber_func(int thread_id) {
     //fprintf(stderr, "global_thread_id = %d; localReplica = %d\n", global_thread_id, localReplica);
     Assert(FLAGS_mode == "meerkatstore");
     auto client = std::make_unique<meerkatstore::meerkatir::Client>(
-                                        FLAGS_numServerThreads,
-                                        FLAGS_numShards,
-                                        localReplica,
-                                        preferred_thread_id,
-                                        local_preferred_read_thread_id,
-                                        twopc, replicated,
-                                        global_thread_id,
-                                        TrueTime(FLAGS_skew, FLAGS_error));
-
+                                        FLAGS_numServerThreads, FLAGS_numShards,
+                                        global_thread_id, ziplogClient, std::move(ziplogBuffer));
     struct timeval t0, t1, t2;
 
     int nTransactions = 0;
@@ -227,6 +222,7 @@ void client_fiber_func(int thread_id) {
 }
 
 void* client_thread_func(int thread_id) {
+/*
     // create the client fibers
     boost::fibers::fiber client_fibers[FLAGS_numClientFibers];
 
@@ -239,6 +235,7 @@ void* client_thread_func(int thread_id) {
         client_fibers[i].join();
     }
     return NULL;
+*/
 };
 
 
@@ -281,12 +278,19 @@ int main(int argc, char **argv) {
     }
     in.close();
 
-    // Create the transport threads; each transport thread will run
     // FLAGS_numClientThreads client fibers
+    // TODO: specify client/ziplog client ratio.
+    const auto ziplog_id = FLAGS_nhost * FLAGS_numClientThreads;
+    const auto cpu_id = 1;
+    auto ziplogManager = zip::network::manager(zip::consts::rdma::DEFAULT_DEVICE, zip::consts::rdma::DEAULT_PORT);
+    auto ziplogClient = std::make_shared<zip::client::client>(
+        ziplogManager, kOrderAddr, ziplog_id, kZiplogShardId, cpu_id, kZiplogClientRate);
+
     std::vector<std::thread> client_thread_arr(FLAGS_numClientThreads);
     for (size_t i = 0; i < FLAGS_numClientThreads; i++) {
         // client_thread_arr[i] = std::thread(client_thread_func, i);
-        client_thread_arr[i] = std::thread(client_fiber_func, i);
+        auto ziplogBuffer(ziplogManager.get_buffer(zip::consts::PAGE_SIZE));
+        client_thread_arr[i] = std::thread(client_fiber_func, i, ziplogClient, std::move(ziplogBuffer));
         // uint8_t idx = i/2 + (i % 2) * 12;
         // erpc::bind_to_core(client_thread_arr[i], 0, i);
     }

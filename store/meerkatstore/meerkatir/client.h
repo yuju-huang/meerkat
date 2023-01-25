@@ -38,6 +38,7 @@
 #include "store/common/timestamp.h"
 #include "store/common/truetime.h"
 #include "store/common/frontend/bufferclient.h"
+#include "client/client.h"
 
 #include <memory>
 #include <thread>
@@ -47,14 +48,8 @@ namespace meerkatir {
 
 class Client {
 public:
-    Client(int nThreads,  int nShards,
-        uint8_t closestReplica,
-        uint8_t preferred_core_id,
-        uint8_t preferred_read_core_id,
-        bool twopc, bool replicated,
-        uint32_t id,
-        TrueTime timeserver = TrueTime(0,0));
-    virtual ~Client();
+    Client(int nsthreads, int nShards, uint32_t id,
+           std::shared_ptr<zip::client::client> client, zip::network::buffer&& buffer);
 
     // Overriding functions from ::Client.
     void Begin();
@@ -66,29 +61,27 @@ public:
     void Abort();
     std::vector<int> Stats();
 
+public:
+    // Returns the underlying read and write set.
+    const Transaction& GetTransaction() const { return txn; }
+
+private:
+    // Prepare function
+    int Prepare();
+
 private:
     // Unique ID for this client.
     const uint64_t client_id;
 
+    // Transaction to keep track of read and write set.
+    Transaction txn;
+
     // Ongoing transaction ID.
     uint64_t t_id;
 
-    // Ongoing transaction's mapping to a core.
-    uint8_t preferred_thread_id;
-    uint8_t preferred_read_thread_id;
-
-    // Buffering client.
-    std::unique_ptr<BufferClient> bclient;
-
-    // TrueTime server.
-    TrueTime timeServer;
-
-    // select core_id for the current transaction from a uniform distribution
-    std::mt19937 core_gen;
-    std::uniform_int_distribution<uint32_t> core_dis;
-
-    // Prepare function
-    int Prepare();
+    // Ziplog data structures
+    std::shared_ptr<zip::client::client> ziplogClient;
+    zip::network::buffer ziplogBuffer;
 };
 
 } // namespace meerkatir
