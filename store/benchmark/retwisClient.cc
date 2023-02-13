@@ -11,6 +11,8 @@
 #include "store/common/frontend/client.h"
 #include "store/meerkatstore/meerkatir/client.h"
 #include "store/common/flags.h"
+#include "network/buffer.h"
+#include "network/manager.h"
 
 #include <boost/fiber/all.hpp>
 #include <fstream>
@@ -31,13 +33,15 @@ std::mt19937 key_gen;
 vector<std::uniform_int_distribution<uint32_t>> keys_distributions;
 thread_local std::uniform_int_distribution<uint32_t> key_dis;
 
-
-// TODO(mwhittaker): Make command line flags.
-bool twopc = false;
-bool replicated = true;
+struct measurement {
+    uint64_t nTransaction,
+    timeval start,
+    timeval end,
+    int status,
+};
 
 void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplogClient,
-                       zip::network::buffer&& ziplogBuffer) {
+                       std::list<zip::network::buffer>&& ziplogBuffers) {
     vector<string> results;
 
     std::mt19937 core_gen;
@@ -55,7 +59,7 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
     // Open file to dump results
     //uint32_t global_client_id = FLAGS_nhost * 1000 + FLAGS_ncpu * FLAGS_numClientThreads + thread_id;
     //FILE* fp = fopen((FLAGS_logPath + "/client." + std::to_string(global_client_id) + ".log").c_str(), "w");
-    uint32_t global_thread_id = FLAGS_nhost * FLAGS_numClientThreads *FLAGS_numClientFibers + thread_id;
+    uint32_t global_thread_id = FLAGS_nhost * FLAGS_numClientThreads * FLAGS_numClientFibers + thread_id;
     FILE* fp = fopen((FLAGS_logPath + "/client." + std::to_string(global_thread_id) + ".log").c_str(), "w");
 
     std::cout << "Start RetwisClient-" << global_thread_id << std::endl;
@@ -83,7 +87,7 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
     Assert(FLAGS_mode == "meerkatstore");
     auto client = std::make_unique<meerkatstore::meerkatir::Client>(
                                         FLAGS_numServerThreads, FLAGS_numShards,
-                                        global_thread_id, ziplogClient, std::move(ziplogBuffer));
+                                        global_thread_id, ziplogClient, std::move(ziplogBuffers));
     struct timeval t0, t1, t2;
 
     int nTransactions = 0;
@@ -121,7 +125,7 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
             keyIdx.push_back(rand_key());
             sort(keyIdx.begin(), keyIdx.end());
 
-            if ((ret = client->Get(keys[keyIdx[0]], value))) {
+            if ((ret = client->Get(keys[keyIdx[0]], value, boost::this_fiber::yield))) {
                 Warning("Aborting due to %s %d", keys[keyIdx[0]].c_str(), ret);
                 status = false;
             }
@@ -137,7 +141,7 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
             sort(keyIdx.begin(), keyIdx.end());
 
             for (int i = 0; i < 2 && status; i++) {
-                if ((ret = client->Get(keys[keyIdx[i]], value))) {
+                if ((ret = client->Get(keys[keyIdx[i]], value, boost::this_fiber::yield))) {
                     Warning("Aborting due to %s %d", keys[keyIdx[i]].c_str(), ret);
                     status = false;
                 }
@@ -154,7 +158,7 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
             sort(keyIdx.begin(), keyIdx.end());
 
             for (int i = 0; i < 3 && status; i++) {
-                if ((ret = client->Get(keys[keyIdx[i]], value))) {
+                if ((ret = client->Get(keys[keyIdx[i]], value, boost::this_fiber::yield))) {
                     Warning("Aborting due to %d %s %d", keyIdx[i], keys[keyIdx[i]].c_str(), ret);
                     status = false;
                 }
@@ -173,7 +177,7 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
 
             sort(keyIdx.begin(), keyIdx.end());
             for (int i = 0; i < nGets && status; i++) {
-                if ((ret = client->Get(keys[keyIdx[i]], value))) {
+                if ((ret = client->Get(keys[keyIdx[i]], value, boost::this_fiber::yield))) {
                     Warning("Aborting due to %s %d", keys[keyIdx[i]].c_str(), ret);
                     status = false;
                 }
@@ -181,14 +185,14 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
             ttype = 4;
         }
 
-        //gettimeofday(&t3, NULL);
+        gettimeofday(&t3, NULL);
         if (status) {
-            status = client->Commit();
+            status = client->Commit(boost::this_fiber::yield);
         }
         gettimeofday(&t2, NULL);
 
-        //commitCount++;
-        //commitLatency += ((t2.tv_sec - t3.tv_sec)*1000000 + (t2.tv_usec - t3.tv_usec));
+        commitCount++;
+        commitLatency += ((t2.tv_sec - t3.tv_sec)*1000000 + (t2.tv_usec - t3.tv_usec));
 
         long latency = (t2.tv_sec - t1.tv_sec)*1000000 + (t2.tv_usec - t1.tv_usec);
 
@@ -221,13 +225,19 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
     std::cout << "RetwisClient client-" << global_thread_id << " done\n";
 }
 
-void* client_thread_func(int thread_id) {
-/*
+void* client_thread_func(int ziplog_id, int cpu_id, zip::network::manager* manager) {
     // create the client fibers
     boost::fibers::fiber client_fibers[FLAGS_numClientFibers];
 
+    // Use cores of NUMA1.
+    printf("ziplog ziplog id=%d, cpu_id=%d, client_rate=%lu\n", ziplog_id, cpu_id, FLAGS_ziplogClientRate);
+    auto ziplogClient = std::make_shared<zip::client::client>(
+        *manager, kOrderAddr, ziplog_id, kZiplogShardId, cpu_id, FLAGS_ziplogClientRate);
     for (int i = 0; i < FLAGS_numClientFibers; i++) {
-        boost::fibers::fiber f(client_fiber_func, thread_id * FLAGS_numClientFibers + i);
+        printf("txn id=%d\n", ziplog_id * FLAGS_numClientFibers + i);
+        boost::fibers::fiber f(
+            client_fiber_func, ziplog_id * FLAGS_numClientFibers + i, ziplogClient,
+            manager->get_buffers(zip::consts::PAGE_SIZE, /* num_buffers */1));
         client_fibers[i] = std::move(f);
     }
 
@@ -235,7 +245,6 @@ void* client_thread_func(int thread_id) {
         client_fibers[i].join();
     }
     return NULL;
-*/
 };
 
 
@@ -278,19 +287,22 @@ int main(int argc, char **argv) {
     }
     in.close();
 
+    // Create the transport threads; each transport thread will run
     // FLAGS_numClientThreads client fibers
     // TODO: specify client/ziplog client ratio.
-    const auto ziplog_id = FLAGS_nhost * FLAGS_numClientThreads;
-    const auto cpu_id = 1;
-    auto ziplogManager = zip::network::manager(zip::consts::rdma::DEFAULT_DEVICE, zip::consts::rdma::DEAULT_PORT);
-    auto ziplogClient = std::make_shared<zip::client::client>(
-        ziplogManager, kOrderAddr, ziplog_id, kZiplogShardId, cpu_id, kZiplogClientRate);
+//    const auto ziplog_id = FLAGS_nhost * FLAGS_numClientThreads;
+//    const auto cpu_id = 1;
+    std::vector<std::unique_ptr<zip::network::manager>> managers;
+//    auto ziplogClient = std::make_shared<zip::client::client>(
+//        ziplogManager, kOrderAddr, ziplog_id, kZiplogShardId, cpu_id, kZiplogClientRate);
 
     std::vector<std::thread> client_thread_arr(FLAGS_numClientThreads);
+    const auto id_base = FLAGS_nhost * FLAGS_numClientThreads;
     for (size_t i = 0; i < FLAGS_numClientThreads; i++) {
-        // client_thread_arr[i] = std::thread(client_thread_func, i);
-        auto ziplogBuffer(ziplogManager.get_buffer(zip::consts::PAGE_SIZE));
-        client_thread_arr[i] = std::thread(client_fiber_func, i, ziplogClient, std::move(ziplogBuffer));
+        managers.emplace_back(std::make_unique<zip::network::manager>(zip::consts::rdma::DEFAULT_DEVICE, zip::consts::rdma::DEFAULT_PORT));
+        // *2 for using the core of the same NUMA, *2 again because one ziplog client uses two cores
+        client_thread_arr[i] = std::thread(client_thread_func, id_base + i, 2 * i * 2 + 1, managers.back().get()); // TODO: comment
+        // client_thread_arr[i] = std::thread(client_fiber_func, i, ziplogClient);
         // uint8_t idx = i/2 + (i % 2) * 12;
         // erpc::bind_to_core(client_thread_arr[i], 0, i);
     }

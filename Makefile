@@ -22,7 +22,7 @@ ERPC_LDFLAGS_DPDK := -L $(ERPC_PATH)/build -lerpc -lnuma -ldl -lgflags -ldpdk
 ## Ziplog flags ##
 ZIPLOG_PATH= "./third_party/ziplog"
 ZIPLOG_CFLAGS := -I $(ZIPLOG_PATH)/src -DCOLOCATED_ZIPKAT
-ZIPLOG_LDFLAGS := -L $(ZIPLOG_PATH)/build -lziplog_client -lziplog_subscriber
+ZIPLOG_LDFLAGS := #-L $(ZIPLOG_PATH)/build -lziplog_client -lziplog_subscriber
 
 CFLAGS_WARNINGS:= -Wno-unused-function -Wno-nested-anon-types -Wno-keyword-macro -Wno-uninitialized
 
@@ -152,6 +152,7 @@ $(foreach bin,$(1),$(eval LDFLAGS-$(bin) += $(2)))
 endef
 
 include lib/Rules.mk
+include third_party/Rules.mk
 include store/common/Rules.mk
 include store/meerkatstore/meerkatir/Rules.mk
 include store/benchmark/Rules.mk

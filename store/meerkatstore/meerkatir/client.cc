@@ -35,6 +35,7 @@
 #include "store/meerkatstore/meerkatir/client.h"
 
 #include <chrono>
+#include <cstring>
 #include <random>
 #include <list>
 #include <limits.h>
@@ -50,11 +51,14 @@ namespace meerkatir {
 using namespace std;
 
 Client::Client(int nsthreads, int nShards, uint32_t id,
-               std::shared_ptr<zip::client::client> client, zip::network::buffer&& buffer)
+               std::shared_ptr<zip::client::client> client,
+               std::list<zip::network::buffer>&& buffer)
     : client_id(id), t_id(0),
       ziplogClient(client),
       ziplogBuffer(std::move(buffer))
 {
+    // Have this assert as we'll only use the first element in the list later.
+    Assert(ziplogBuffer.size() == 1);
     // Initialize all state here;
     srand(time(NULL));
 
@@ -91,7 +95,7 @@ Client::Begin()
 }
 
 /* Returns the value corresponding to the supplied key. */
-int Client::Get(const string &key, string &value)
+int Client::Get(const string &key, string &value, yield_t yield)
 {
 #ifdef MEASURE
     auto start = std::chrono::high_resolution_clock::now();
@@ -105,24 +109,30 @@ int Client::Get(const string &key, string &value)
     }
 
     // Send the GET operation.
+    zip::client::client::zipkat_get_request request;
+    request.buffer = &ZiplogBuffer();
+    request.timestamp = -1;
+    auto& req = request.buffer->as<zip::api::zipkat_get>();
     const auto leng = key.length();
-    auto& req = ziplogBuffer.as<zip::api::zipkat_get>();
     req.message_type = zip::api::ZIPKAT_GET;
     req.client_id = ziplogClient->client_id();
     req.gsn = 0;
     req.data_length = leng;
-    memcpy(req.key, key.data(), leng);
-    Assert(req.length() < ziplogBuffer.length());
+    std::memcpy(req.key, key.data(), leng);
+    Assert(req.length() < ZiplogBuffer().length());
 
     static std::string empty;
-    uint64_t timestamp;
     Assert(ziplogClient.get());
-    const bool succ = ziplogClient->zipkat_get(ziplogBuffer, value, timestamp);
+    ziplogClient->zipkat_get(request);
+    while (request.timestamp.load(std::memory_order_acquire) == -1) {
+        yield();
+    }
 #ifdef MEASURE
     std::cout << "Get takes " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count() << std::endl;
 #endif
 
-    if (succ) {
+    const auto timestamp = request.timestamp.load(std::memory_order_relaxed);
+    if (timestamp != zip::api::zipkat_get_response::kKeyNotFound) {
         Debug("Adding [%s] with ts %lu", key.c_str(), timestamp);
         txn.addReadSet(key, timestamp);
         return REPLY_OK;
@@ -130,13 +140,6 @@ int Client::Get(const string &key, string &value)
         Debug("%s not found", key.c_str());
         return REPLY_FAIL;
     }
-}
-
-string Client::Get(const string &key)
-{
-    string value;
-    Get(key, value);
-    return value;
 }
 
 /* Sets the value corresponding to the supplied key. */
@@ -150,11 +153,15 @@ int Client::Put(const string &key, const string &value)
 
 // This calls TryCommit, which will Commit if validation passes.
 // TODO: make better method name.
-int Client::Prepare()
+int Client::Prepare(yield_t yield)
 {
     Debug("PREPARE [%lu] ", t_id);
+    zip::client::client::request request;
+    request.buffer = &ZiplogBuffer();
+    request.response.store(-1, std::memory_order_release);
+
     size_t txnLen = txn.serializedSize();
-    auto& req = ziplogBuffer.as<zip::api::storage_insert_after>();
+    auto& req = ZiplogBuffer().as<zip::api::storage_insert_after>();
     req.message_type = zip::api::STORAGE_INSERT_AFTER;
     req.client_id = client_id;
     req.gsn_after = 0;
@@ -166,19 +173,23 @@ int Client::Prepare()
     txn.serialize((char*)commit_req->data);
     req.data_length = commit_req->length();
 
-    Assert(req.length() < ziplogBuffer.length());
+    Assert(req.length() < ZiplogBuffer().length());
     Assert(ziplogClient.get());
-    const auto result = ziplogClient->insert_after(ziplogBuffer);
-    return result.second;
+    ziplogClient->insert_after(request);
+    while (request.response.load(std::memory_order_relaxed) == -1) {
+        yield();
+    }
+    Debug("request.application_return=%lu", request.application_return); 
+    return request.application_return;
 }
 
 /* Attempts to commit the ongoing transaction. */
-bool Client::Commit()
+bool Client::Commit(yield_t yield)
 {
 #ifdef MEASURE
     auto start = std::chrono::high_resolution_clock::now();
 #endif
-    int status = Prepare();
+    int status = Prepare(yield);
 
     if (status == REPLY_OK) {
         Debug("COMMIT [%lu]", t_id);

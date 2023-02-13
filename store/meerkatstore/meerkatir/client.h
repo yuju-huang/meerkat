@@ -33,12 +33,13 @@
 #ifndef _MEERKATSTORE_MEERKATIR_CLIENT_H_
 #define _MEERKATSTORE_MEERKATIR_CLIENT_H_
 
+#include "client/client.h"
 #include "lib/assert.h"
 #include "lib/message.h"
 #include "store/common/timestamp.h"
 #include "store/common/truetime.h"
-#include "store/common/frontend/bufferclient.h"
-#include "client/client.h"
+#include "store/common/transaction.h"
+#include "network/buffer.h"
 
 #include <memory>
 #include <thread>
@@ -46,18 +47,19 @@
 namespace meerkatstore {
 namespace meerkatir {
 
+typedef void (*yield_t)(void);
+
 class Client {
 public:
     Client(int nsthreads, int nShards, uint32_t id,
-           std::shared_ptr<zip::client::client> client, zip::network::buffer&& buffer);
+           std::shared_ptr<zip::client::client> client,
+           std::list<zip::network::buffer>&& buffer);
 
     // Overriding functions from ::Client.
     void Begin();
-    int Get(const std::string &key, std::string &value);
-    // Interface added for Java bindings
-    std::string Get(const std::string &key);
+    int Get(const std::string &key, std::string &value, yield_t yield);
     int Put(const std::string &key, const std::string &value);
-    bool Commit();
+    bool Commit(yield_t yield);
     void Abort();
     std::vector<int> Stats();
 
@@ -66,8 +68,9 @@ public:
     const Transaction& GetTransaction() const { return txn; }
 
 private:
-    // Prepare function
-    int Prepare();
+    zip::network::buffer& ZiplogBuffer() { return ziplogBuffer.front(); }
+
+    int Prepare(yield_t yield);
 
 private:
     // Unique ID for this client.
@@ -81,7 +84,7 @@ private:
 
     // Ziplog data structures
     std::shared_ptr<zip::client::client> ziplogClient;
-    zip::network::buffer ziplogBuffer;
+    std::list<zip::network::buffer> ziplogBuffer;
 };
 
 } // namespace meerkatir

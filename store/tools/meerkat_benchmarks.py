@@ -16,6 +16,9 @@ import time
 # A set of benchmark parameters.
 Parameters = namedtuple('Parameters', [
     # Client and server parameters. ############################################
+    # The type of this experiment
+    'exp_type',
+
     # The directory in which TAPIR config files are stored.
     'config_file_directory',
     # The maximum number of allowable failures.
@@ -31,11 +34,18 @@ Parameters = namedtuple('Parameters', [
 
     # Server parameters. #######################################################
     # The server binary.
-    'server_binary',
+    'ziplog_order_binary',
+    'ziplog_order_port',
+    'ziplog_order_cpus',
+    'ziplog_storage_binary',
+    'client_cpus',
+    'subscriber_cpus',
 
     # Client parameters. #######################################################
     # The client binary.
     'client_binary',
+    'client_rate',
+
     # The number of seconds that the clients run (must be bigger than
     # 2*benchmark_warmup_seconds).
     'benchmark_duration_seconds',
@@ -99,7 +109,7 @@ def azure_servers():
 # to send dataplane traffic.
 # For Mellanox NICs the index used is identical to the one
 # listed by ibv_devinfo.
-def zookeeper_clients():
+def clients():
     return {
         #RemoteHost('10.100.5.3') : {'phys_port'  : 1}, # anteater-1g
         #RemoteHost('10.100.3.49') : {'phys_port'  : 0}, # bongo-1g
@@ -111,17 +121,19 @@ def zookeeper_clients():
         #RemoteHost('10.100.5.138'): {'phys_port'  : 1}, # platypus-1g
         #RemoteHost('10.100.5.23') : {'phys_port'  : 0}, # rhinoceros-1g
         #RemoteHost('10.100.5.25') : {'phys_port'  : 0}, # sloth-1g
-        RemoteHost('192.168.99.18') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.21') : {'phys_port'  : 0},
         RemoteHost('192.168.99.20') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.17') : {'phys_port'  : 0},
         RemoteHost('192.168.99.24') : {'phys_port'  : 0},
         RemoteHost('192.168.99.25') : {'phys_port'  : 0},
-        RemoteHost('192.168.99.16') : {'phys_port'  : 0},
-        RemoteHost('192.168.99.17') : {'phys_port'  : 0},
-        RemoteHost('192.168.99.106') : {'phys_port'  : 0},
-        RemoteHost('192.168.99.21') : {'phys_port'  : 0},
+        #RemoteHost('192.168.99.26') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.27') : {'phys_port'  : 0},
         RemoteHost('192.168.99.22') : {'phys_port'  : 0},
         RemoteHost('192.168.99.105') : {'phys_port'  : 0},
-        RemoteHost('192.168.99.27') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.106') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.16') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.30') : {'phys_port'  : 0},
+        #RemoteHost('192.168.99.18') : {'phys_port'  : 0},
     }
     #return {
     #    RemoteHost('10.100.1.2') : {'phys_port'  : 1}, # anteater
@@ -136,10 +148,23 @@ def zookeeper_clients():
     #    ##RemoteHost('10.100.1.20'): {'phys_port'  : 1}, # sloth
     #}
 
-def zookeeper_servers():
+def ziplog_order_ips():
+    return [
+        '192.168.99.16',
+        #'192.168.99.29',
+    ]
+
+def ziplog_order_servers():
+    ret = {}
+    for ip in ziplog_order_ips():
+        ret[RemoteHost(ip)] = {'phys_port' : 0}
+    return ret
+
+def ziplog_storage_servers():
     return {
-        RemoteHost('192.168.99.28') : {'phys_port'  : 0},
-        RemoteHost('192.168.99.29') : {'phys_port'  : 0},
+        #RemoteHost('192.168.99.22') : {'phys_port'  : 0},
+        #RemoteHost('192.168.99.28') : {'phys_port'  : 0},
+        #RemoteHost('192.168.99.29') : {'phys_port'  : 0},
         RemoteHost('192.168.99.30') : {'phys_port'  : 0},
     }
 
@@ -279,15 +304,151 @@ def setup_rx_queues(servers, queues_cnt):
     parallel_server_tasks = Parallel(server_tasks, aggregate=True)
     parallel_server_tasks.start(wait = True)
 
-def run_benchmark(bench_dir, clients, servers, parameters):
+def start_ziplog_order(ziplog_order_servers, parameters, bench_dir):
+    # Start the servers.
+    print(boxed('Starting ziplog order servers.'))
+    tasks = []
+    # command to enable core dump on the server in case of SIGSEGV
+    core_dump_cmd = [
+        "ulimit -c unlimited;",
+    #    "sudo sysctl -w kernel.core_pattern=/tmp/core-%e.%p.%h.%t; ",
+    ]
+    # command to increase the number of fds we can open
+    max_open_files_cmd = [
+        "ulimit -n 16384;",
+    ]
+    # command to free buff/cache
+    drop_caches_cmd = [
+    #    "sudo bash -c \"echo 3 > /proc/sys/vm/drop_caches\"; "
+    ]
+    for server in list(ziplog_order_servers.keys()):
+        cmd = [
+    #        "sudo",
+            parameters.ziplog_order_binary,
+            "--server", str(parameters.ziplog_order_port),
+            "--cpu", str(parameters.ziplog_order_cpus),
+        ]
+
+        # We capture the stdout and stderr of the servers using the trick
+        # outlined in [1]. pyrem has some support for capturing stdout and
+        # stderr as well, but it doesn't alway work.
+        #
+        # [1]: https://stackoverflow.com/a/692407/3187068
+        cmd.append(('> >(tee /mnt/log/ziplog_order_{0}_out.txt) ' +
+                    '2> >(tee /mnt/log/ziplog_order_{0}_err.txt >&2)')
+                   .format(server.hostname))
+
+        # Record (and print) the command we run, so that we can re-run it later
+        # while we debug.
+        print('Running {} on {}.'.format(' '.join(core_dump_cmd + max_open_files_cmd + cmd), server.hostname))
+        bench_dir.write_string(
+            'ziplog_order_{}_cmd.txt'.format(server.hostname),
+            ' '.join(cmd) + '\n')
+        tasks.append(server.run(drop_caches_cmd + core_dump_cmd + max_open_files_cmd + cmd))
+    parallel_server_tasks = Parallel(tasks, aggregate=True)
+    parallel_server_tasks.start()
+    print('Waiting for ziplog order servers to start.')
+    time.sleep(2)
+
+def start_ziplog_storages(ziplog_storage_servers, parameters, bench_dir):
+    shard_id = 0
+    # TODO: adjust cpus
+    #client_cpus = "1,3,5,7"
+    client_cpus = "1,3,5,7,9,11,13,15"
+    #client_cpus = "1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31"
+    #subscriber_cpus = "17,19,21,23";
+    subscriber_cpus = "17,19,21,23,25,27,29,31"
+    #subscriber_cpus = "0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30"
+
+    # Start the servers.
+    print(boxed('Starting ziplog storage servers.'))
+    tasks = []
+    # command to enable core dump on the server in case of SIGSEGV
+    core_dump_cmd = [
+        "ulimit -c unlimited;",
+        #"sudo sysctl -w kernel.core_pattern=/tmp/core-%e.%p.%h.%t; ",
+    ]
+    # command to increase the number of fds we can open
+    max_open_files_cmd = [
+        "ulimit -n 16384;",
+    ]
+    # command to free buff/cache
+    drop_caches_cmd = [
+        #"sudo bash -c \"echo 3 > /proc/sys/vm/drop_caches\"; "
+    ]
+    for (replica_index, server) in enumerate(sorted(list(ziplog_storage_servers.keys()), key=lambda h: h.hostname)[:2*parameters.f + 1]):
+        cmd = [
+            #"sudo",
+            parameters.ziplog_storage_binary,
+            "--order", ziplog_order_ips()[0] + ":" + str(parameters.ziplog_order_port),
+            "--shard_id", str(shard_id),
+            "--replica_id", str(replica_index),
+            "--client_cpus", str(parameters.client_cpus),
+            "--subscriber_cpus", str(parameters.subscriber_cpus),
+            "--num_keys", str(parameters.num_keys),
+        ]
+
+        # We capture the stdout and stderr of the servers using the trick
+        # outlined in [1]. pyrem has some support for capturing stdout and
+        # stderr as well, but it doesn't alway work.
+        #
+        # [1]: https://stackoverflow.com/a/692407/3187068
+        cmd.append(('> >(tee /mnt/log/ziplog_storage_{0}_out.txt) ' +
+                    '2> >(tee /mnt/log/ziplog_storage_{0}_err.txt >&2)')
+                   .format(server.hostname))
+
+        # Record (and print) the command we run, so that we can re-run it later
+        # while we debug.
+        print('Running {} on {}.'.format(' '.join(core_dump_cmd + max_open_files_cmd + cmd), server.hostname))
+        bench_dir.write_string(
+            'ziplog_storage_{}_cmd.txt'.format(server.hostname),
+            ' '.join(cmd) + '\n')
+        tasks.append(server.run(drop_caches_cmd + core_dump_cmd + max_open_files_cmd + cmd))
+    parallel_server_tasks = Parallel(tasks, aggregate=True)
+    parallel_server_tasks.start()
+    print('Waiting for ziplog storage servers to start.')
+    time.sleep(5 + parameters.num_keys / 300000)
+
+def kill_servers(ziplog_order_servers, ziplog_storage_servers):
+    # Kill ziplog orders
+    kill_tasks = []
+    for server in list(ziplog_order_servers.keys()):
+        cmd = [
+            "killall -9 order",
+        ]
+
+        # Record (and print) the command we run, so that we can re-run it later
+        # while we debug.
+        print('Running {} on {}.'.format(' '.join(cmd), server.hostname))
+        kill_tasks.append(server.run(cmd))
+    parallel_kill_tasks = Parallel(kill_tasks, aggregate=True)
+    parallel_kill_tasks.start(wait=True)
+
+    # Kill ziplog storages
+    kill_tasks = []
+    for server in list(ziplog_storage_servers.keys()):
+        cmd = [
+            "killall -9 storage",
+        ]
+
+        # Record (and print) the command we run, so that we can re-run it later
+        # while we debug.
+        print('Running {} on {}.'.format(' '.join(cmd), server.hostname))
+        kill_tasks.append(server.run(cmd))
+    parallel_kill_tasks = Parallel(kill_tasks, aggregate=True)
+    parallel_kill_tasks.start(wait=True)
+
+def run_benchmark(bench_dir, clients, ziplog_order_servers, ziplog_storage_servers, parameters):
     # Clear the clients' and servers' out and err files in /mnt/log.
     print(boxed('Clearing *_out.txt and *_err.txt'))
     clear_out_files = Parallel([host.run(['rm', '/mnt/log/*_out.txt'])
-                                for host in list(clients.keys()) + list(servers.keys())],
+                                for host in list(clients.keys()) + list(ziplog_order_servers.keys()) +
+                                            list(ziplog_storage_servers)],
                                 aggregate=True)
     clear_out_files.start(wait=True)
     clear_err_files = Parallel([host.run(['rm', '/mnt/log/*_err.txt'])
-                                for host in list(clients.keys()) + list(servers.keys())],
+                                for host in list(clients.keys()) + list(ziplog_order_servers.keys()) +
+                                            list(ziplog_storage_servers)],
                                 aggregate=True)
     clear_err_files.start(wait=True)
 
@@ -303,89 +464,12 @@ def run_benchmark(bench_dir, clients, servers, parameters):
 
     bench_dir.write_string('logs_cleared_time.txt', str(datetime.datetime.now()))
 
-    # Start the servers.
-    print(boxed('Starting servers.'))
-    server_tasks = []
-    # command to enable core dump on the server in case of SIGSEGV
-    core_dump_cmd = [
-        "ulimit -c unlimited;",
-        "sudo sysctl -w kernel.core_pattern=/tmp/core-%e.%p.%h.%t; ",
-    ]
-    # command to increase the number of fds we can open
-    max_open_files_cmd = [
-        "ulimit -n 16384;",
-    ]
-    # command to free buff/cache
-    drop_caches_cmd = [
-        "sudo bash -c \"echo 3 > /proc/sys/vm/drop_caches\"; "
-    ]
-    for (replica_index, server) in enumerate(sorted(list(servers.keys()), key=lambda h: h.hostname)[:2*parameters.f + 1]):
-        cmd = [
-            "sudo",
-            # Here, we use perf to record the performance of the server. `perf
-            # record` writes profiling information to the -o file specified
-            # below. -g enables the collection of stack traces. --timestamp
-            # allows us to use flamescope [1].
-            #
-            # [1]: https://github.com/Netflix/flamescope
-            #"perf", "record",
-            #    "-o", "/mnt/log/server_{}_perf.data".format(replica_index),
-            #    "-g",
-            #    "--timestamp",
-            #    "--",
-            #"LD_PRELOAD=/homes/sys/aaasz/tapir/store/tools/Hoard/src/libhoard.so",
-            #"DEBUG=all",
-            #"valgrind --tool=callgrind --callgrind-out-file=/tmp/callgrind.txt",
-            #"LD_PRELOAD=libhugetlbfs.so HUGETLB_MORECORE=yes",
-            #"perf c2c record -F 10000 -a -g -o /tmp/perf.data --delay 60000 -- ",
-            #"perf record --cpu 0 -g -o /tmp/perf.data -- ",
-            #"perf stat -B --delay 40000 -I 20000 -e cache-references,cache-misses,l2_rqsts.miss,l2_rqsts.references,cycles,instructions",
-            #"perf stat -B --delay 220000 -I 20000 -e cycles,instructions",
-            #"mutrace",
-            #"perf", "record",
-            #    "-o", "/mnt/log/server_{}_perf.data".format(replica_index),
-            #    "-C0",
-            #    "-e l2_rqsts.miss",
-            #    "-c 10000",
-            #    "-g",
-            #    "--",
-            parameters.server_binary,
-            "--configFile", os.path.join(
-                parameters.config_file_directory,
-                'f{}.shard0.config'.format(parameters.f)),
-            "--replicaIndex", str(replica_index),
-            "--keysFile", parameters.key_file,
-            "--numKeys", str(parameters.num_keys),
-            "--numShards", "1",
-            "--shardIndex", "0",
-            "--numServerThreads", str(parameters.num_server_threads),
-            #"--replScheme", str(parameters.repl_scheme),
-        ]
-
-        # We capture the stdout and stderr of the servers using the trick
-        # outlined in [1]. pyrem has some support for capturing stdout and
-        # stderr as well, but it doesn't alway work.
-        #
-        # [1]: https://stackoverflow.com/a/692407/3187068
-        cmd.append(('> >(tee /mnt/log/server_{0}_out.txt) ' +
-                    '2> >(tee /mnt/log/server_{0}_err.txt >&2)')
-                   .format(server.hostname))
-
-        # Record (and print) the command we run, so that we can re-run it later
-        # while we debug.
-        print('Running {} on {}.'.format(' '.join(core_dump_cmd + max_open_files_cmd + cmd), server.hostname))
-        bench_dir.write_string(
-            'server_{}_cmd.txt'.format(server.hostname),
-            ' '.join(cmd) + '\n')
-
-        server_tasks.append(server.run(drop_caches_cmd + core_dump_cmd + max_open_files_cmd + cmd))
-    parallel_server_tasks = Parallel(server_tasks, aggregate=True)
-    parallel_server_tasks.start()
+    # Start the servers
+    start_ziplog_order(ziplog_order_servers, parameters, bench_dir)
+    start_ziplog_storages(ziplog_storage_servers, parameters, bench_dir)
 
     # Wait for the servers to start.
-    print(boxed('Waiting for servers to start.'))
-    time.sleep(10 + 2 * parameters.num_server_threads)
-    #time.sleep(170)
+    #print('Waiting for all servers to start.')
     bench_dir.write_string('servers_started_time.txt', str(datetime.datetime.now()))
 
     # Start the clients and wait for them to finish.
@@ -396,10 +480,10 @@ def run_benchmark(bench_dir, clients, servers, parameters):
         for client_i in range(parameters.num_clients_per_machine):
             cmd = [
                 "ulimit -n 8192;" , # increase how many fds we can open
-                "sudo",
                 #"valgrind --leak-check=yes",
                 #"perf stat -B --delay 40000 -I 20000 -e cycles,instructions",
                 #"DEBUG=all",
+                "LD_LIBRARY_PATH=/home/yh885/zipkat",
                 parameters.client_binary,
                 "--configFile", os.path.join(
                     parameters.config_file_directory,
@@ -416,6 +500,7 @@ def run_benchmark(bench_dir, clients, servers, parameters):
                 #"--replScheme", str(parameters.repl_scheme),
                 "--numServerThreads", str(parameters.num_server_threads),
                 "--zipf", str(parameters.zipf_coefficient),
+                "--ziplogClientRate", str(parameters.client_rate),
                 "--ncpu", str(client_i),
                 "--nhost", str(host_i),
                 "--numClientThreads", str(parameters.num_threads_per_client),
@@ -440,12 +525,31 @@ def run_benchmark(bench_dir, clients, servers, parameters):
 
             client_tasks.append(client.run(cmd, quiet=True))
     parallel_client_tasks = Parallel(client_tasks, aggregate=True)
-    parallel_client_tasks.start(wait=True)
+    parallel_client_tasks.start()
+    #parallel_client_tasks.start(wait=True)
+
+    # Kill the clients if they're not finished.
+    time.sleep(10 + parameters.benchmark_duration_seconds)
+    print(boxed('Killing clients'))
+    # We can't use PyREM's stop function because we need sudo priviledges
+    #parallel_server_tasks.stop()
+    kill_tasks = []
+    for host_i, client in enumerate(list(clients.keys())[:parameters.num_client_machines]):
+        cmd = [
+            "killall -9 retwisClient",
+        ]
+
+        # Record (and print) the command we run, so that we can re-run it later
+        # while we debug.
+        print('Running {} on {}.'.format(' '.join(cmd), client.hostname))
+        kill_tasks.append(client.run(cmd))
+    parallel_kill_tasks = Parallel(kill_tasks, aggregate=True)
+    parallel_kill_tasks.start(wait=True)
     bench_dir.write_string('clients_done_time.txt', str(datetime.datetime.now()))
 
     # Copy stdout and stderr files over.
     print(boxed('Copying *_out.txt and *_err.txt.'))
-    for host in list(servers.keys()) + list(clients.keys()):
+    for host in list(ziplog_order_servers.keys()) + list(ziplog_storage_servers.keys()) + list(clients.keys()):
         subprocess.call([
             'scp',
             '{}:/mnt/log/*_out.txt'.format(host.hostname),
@@ -489,27 +593,13 @@ def run_benchmark(bench_dir, clients, servers, parameters):
 
     # Kill the servers.
     print(boxed('Killing servers.'))
-    #time.sleep(50)
-    # We can't use PyREM's stop function because we need sudo priviledges
-    #parallel_server_tasks.stop()
-    kill_tasks = []
-    for (replica_index, server) in enumerate(sorted(list(servers.keys()), key=lambda h: h.hostname)[:2*parameters.f + 1]):
-        cmd = [
-            "sudo kill -INT `pgrep meerkat_server`",
-        ]
-
-        # Record (and print) the command we run, so that we can re-run it later
-        # while we debug.
-        print('Running {} on {}.'.format(' '.join(cmd), server.hostname))
-        kill_tasks.append(server.run(cmd))
-    parallel_kill_tasks = Parallel(kill_tasks, aggregate=True)
-    parallel_kill_tasks.start(wait=True)
+    kill_servers(ziplog_order_servers, ziplog_storage_servers)
 
     bench_dir.write_string('servers_killed_time.txt', str(datetime.datetime.now()))
 
     return results
 
-def run_suite(suite_dir, parameters_list, clients, servers):
+def run_suite(suite_dir, parameters_list, clients, ziplog_order_servers, ziplog_storage_servers):
     # Store the list of parameters.
     parameters_strings = '\n'.join(str(p) for p in parameters_list)
     suite_dir.write_string('parameters_list.txt', parameters_strings)
@@ -527,7 +617,8 @@ def run_suite(suite_dir, parameters_list, clients, servers):
                 bench_dir.write_dict('parameters.json', parameters._asdict())
                 bench_dir.write_string('parameters.txt', str(parameters))
 
-                result = run_benchmark(bench_dir, clients, servers, parameters)
+                result = run_benchmark(bench_dir, clients, ziplog_order_servers,
+                                       ziplog_storage_servers, parameters)
                 if result:
                     csv_writer.writerow(ParametersAndResult(*(parameters + result)))
                     f.flush()
@@ -535,6 +626,7 @@ def run_suite(suite_dir, parameters_list, clients, servers):
 def main(args):
     # Set benchmark parameters.
     base_parameters = Parameters(
+        exp_type="client" + str(1) + "_zipf" + str(0) + "_keys" + str(1000 * 1000),
         config_file_directory=args.config_file_directory,
         f=0,
         key_file=args.key_file,
@@ -542,7 +634,10 @@ def main(args):
         num_server_threads=1,
         repl_scheme='ir',
         server_binary=args.server_binary,
+        client_cpus="1",
+        subscriber_cpus="3",
         client_binary=args.client_binary,
+        client_rate=100000,
         benchmark_duration_seconds=60,
         benchmark_warmup_seconds=15,
         transaction_length=2,
@@ -588,7 +683,7 @@ def main(args):
     # Run the suite.
     suite_dir = benchmark.SuiteDirectory(args.suite_directory)
     suite_dir.write_dict('args.json', vars(args))
-    run_suite(suite_dir, parameters_list, zookeeper_clients(), zookeeper_servers())
+    run_suite(suite_dir, parameters_list, clients(), ziplog_order_servers(), ziplog_storage_servers())
 
 def parser():
     # https://stackoverflow.com/a/4028943/3187068
@@ -597,15 +692,30 @@ def parser():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
-        '--server_binary',
+        '--ziplog_order_binary',
         type=str,
         required=True,
-        help='The silo server binary.')
+        help='The ziplog order binary.')
+    parser.add_argument(
+        '--ziplog_order_port',
+        type=int,
+        required=True,
+        help='The ziplog order port.')
+    parser.add_argument(
+        '--ziplog_order_cpus',
+        type=str,
+        required=True,
+        help='The ziplog order cpus.')
+    parser.add_argument(
+        '--ziplog_storage_binary',
+        type=str,
+        required=True,
+        help='The ziplog storage binary.')
     parser.add_argument(
         '--client_binary',
         type=str,
         required=True,
-        help='The silo client benchmark binary.')
+        help='The client benchmark binary.')
     parser.add_argument(
         '--config_file_directory',
         type=str,

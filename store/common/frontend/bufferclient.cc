@@ -35,7 +35,7 @@ using namespace std;
 
 BufferClient::BufferClient(uint32_t id)
     : client_id(id), txn(),
-      ziplogManager(zip::consts::rdma::DEFAULT_DEVICE, zip::consts::rdma::DEAULT_PORT),
+      ziplogManager(zip::consts::rdma::DEFAULT_DEVICE, zip::consts::rdma::DEFAULT_PORT),
       ziplogBuffer(ziplogManager.get_buffer(zip::consts::PAGE_SIZE))
 {
     // TODO: Initialize ziplog
