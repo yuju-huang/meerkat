@@ -6,5 +6,3 @@ SRCS += $(addprefix $(d), promise.cc timestamp.cc tracer.cc \
 
 LIB-store-common := $(o)promise.o $(o)timestamp.o \
 							$(o)tracer.o $(o)transaction.o $(o)truetime.o
-
-include $(d)frontend/Rules.mk
