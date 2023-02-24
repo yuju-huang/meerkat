@@ -21,8 +21,8 @@ ERPC_LDFLAGS_DPDK := -L $(ERPC_PATH)/build -lerpc -lnuma -ldl -lgflags -ldpdk
 
 ## Ziplog flags ##
 ZIPLOG_PATH= "./third_party/ziplog"
-ZIPLOG_CFLAGS := -I $(ZIPLOG_PATH)/src -DCOLOCATED_ZIPKAT
-ZIPLOG_LDFLAGS := #-L $(ZIPLOG_PATH)/build -lziplog_client -lziplog_subscriber
+ZIPLOG_CFLAGS := -I$(ZIPLOG_PATH)/src -I$(ZIPLOG_PATH)/deps/HdrHistogram_c/include -DCOLOCATED_ZIPKAT #-DZIP_MEASURE
+ZIPLOG_LDFLAGS := $(ZIPLOG_PATH)/deps/HdrHistogram_c/build/src/libhdr_histogram_static.a
 
 CFLAGS_WARNINGS:= -Wno-unused-function -Wno-nested-anon-types -Wno-keyword-macro -Wno-uninitialized
 

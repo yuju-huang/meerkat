@@ -43,6 +43,7 @@
 
 #include <memory>
 #include <thread>
+#include <hdr/hdr_histogram.h>
 
 namespace meerkatstore {
 namespace meerkatir {
@@ -53,7 +54,7 @@ class Client {
 public:
     Client(int nsthreads, int nShards, uint32_t id,
            std::shared_ptr<zip::client::client> client,
-           std::list<zip::network::buffer>&& buffer);
+           zip::network::manager& manager);
 
     // Overriding functions from ::Client.
     void Begin();
@@ -62,6 +63,7 @@ public:
     bool Commit(yield_t yield);
     void Abort();
     std::vector<int> Stats();
+    uint64_t ClientId() { return client_id; }
 
 public:
     // Returns the underlying read and write set.
@@ -85,6 +87,15 @@ private:
     // Ziplog data structures
     std::shared_ptr<zip::client::client> ziplogClient;
     std::list<zip::network::buffer> ziplogBuffer;
+
+#ifdef ZIP_MEASURE
+    hdr_histogram* hist_get;
+    int hdr_count_get;
+    hdr_histogram* hist_commit;
+    int hdr_count_commit;
+    hdr_histogram* hist_yield;
+    int hdr_count_yield;
+#endif
 };
 
 } // namespace meerkatir

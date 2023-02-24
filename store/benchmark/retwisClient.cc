@@ -8,13 +8,13 @@
 
 #include "store/common/consts.h"
 #include "store/common/truetime.h"
-#include "store/common/frontend/client.h"
 #include "store/meerkatstore/meerkatir/client.h"
 #include "store/common/flags.h"
 #include "network/buffer.h"
 #include "network/manager.h"
 
 #include <boost/fiber/all.hpp>
+#include <csignal>
 #include <fstream>
 #include <signal.h>
 #include <random>
@@ -34,15 +34,16 @@ vector<std::uniform_int_distribution<uint32_t>> keys_distributions;
 thread_local std::uniform_int_distribution<uint32_t> key_dis;
 
 struct measurement {
-    uint64_t nTransaction,
-    timeval start,
-    timeval end,
-    int status,
+    uint64_t nTransaction;
+    timeval start;
+    timeval end;
+    bool status;
 };
+constexpr size_t kNumMeasurement = 1000000;
 
 void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplogClient,
-                       std::list<zip::network::buffer>&& ziplogBuffers) {
-    vector<string> results;
+                       zip::network::manager* manager) {
+    vector<measurement> results(kNumMeasurement);
 
     std::mt19937 core_gen;
     std::mt19937 replica_gen;
@@ -59,7 +60,7 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
     // Open file to dump results
     //uint32_t global_client_id = FLAGS_nhost * 1000 + FLAGS_ncpu * FLAGS_numClientThreads + thread_id;
     //FILE* fp = fopen((FLAGS_logPath + "/client." + std::to_string(global_client_id) + ".log").c_str(), "w");
-    uint32_t global_thread_id = FLAGS_nhost * FLAGS_numClientThreads * FLAGS_numClientFibers + thread_id;
+    uint32_t global_thread_id = thread_id;
     FILE* fp = fopen((FLAGS_logPath + "/client." + std::to_string(global_thread_id) + ".log").c_str(), "w");
 
     std::cout << "Start RetwisClient-" << global_thread_id << std::endl;
@@ -87,10 +88,10 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
     Assert(FLAGS_mode == "meerkatstore");
     auto client = std::make_unique<meerkatstore::meerkatir::Client>(
                                         FLAGS_numServerThreads, FLAGS_numShards,
-                                        global_thread_id, ziplogClient, std::move(ziplogBuffers));
+                                        global_thread_id, ziplogClient, *manager);
     struct timeval t0, t1, t2;
 
-    int nTransactions = 0;
+    uint64_t nTransactions = 1;
     int tCount = 0;
     double tLatency = 0.0;
     int getCount = 0;
@@ -98,7 +99,6 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
     int commitCount = 0;
     double commitLatency = 0.0;
     string key, value;
-    char buffer[100];
     bool status;
     string v (56, 'x'); //56 bytes
 
@@ -117,6 +117,7 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
 
         // Decide which type of retwis transaction it is going to be.
         ttype = rand() % 100;
+        //ttype = 30;
 
         if (ttype < 5) {
             // 5% - Add user transaction. 1,3
@@ -185,36 +186,47 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
             ttype = 4;
         }
 
-        gettimeofday(&t3, NULL);
+        //gettimeofday(&t3, NULL);
         if (status) {
             status = client->Commit(boost::this_fiber::yield);
         }
         gettimeofday(&t2, NULL);
 
-        commitCount++;
-        commitLatency += ((t2.tv_sec - t3.tv_sec)*1000000 + (t2.tv_usec - t3.tv_usec));
-
-        long latency = (t2.tv_sec - t1.tv_sec)*1000000 + (t2.tv_usec - t1.tv_usec);
+        //commitCount++;
+        //commitLatency += ((t2.tv_sec - t3.tv_sec)*1000000 + (t2.tv_usec - t3.tv_usec));
 
         // log only the transactions that finished in the interval we actually measure
-        if ((t2.tv_sec > FLAGS_secondsFromEpoch + FLAGS_warmup) &&
+        if ((t2.tv_sec >= FLAGS_secondsFromEpoch + FLAGS_warmup) &&
             (t2.tv_sec < FLAGS_secondsFromEpoch + FLAGS_duration - FLAGS_warmup)) {
-            sprintf(buffer, "%d %ld.%06ld %ld.%06ld %ld %d\n", ++nTransactions, t1.tv_sec,
-                    t1.tv_usec, t2.tv_sec, t2.tv_usec, latency, status?1:0);
-            results.push_back(string(buffer));
-
-            if (status) {
-                tCount++;
-                tLatency += latency;
-            }
+            //sprintf(buffer, "%d %ld.%06ld %ld.%06ld %ld %d\n", ++nTransactions, t1.tv_sec,
+            //        t1.tv_usec, t2.tv_sec, t2.tv_usec, latency, status?1:0);
+            //long latency = (t2.tv_sec - t1.tv_sec)*1000000 + (t2.tv_usec - t1.tv_usec);
+            //printf("client-%d, %lu %ld.%06ld %ld.%06ld %ld %d\n", global_thread_id, nTransactions, t1.tv_sec,
+            //        t1.tv_usec, t2.tv_sec, t2.tv_usec, latency, status?1:0);
+            if (nTransactions > results.size())
+                results.emplace_back(measurement{nTransactions, t1, t2, status});
+            else
+                results[nTransactions - 1] = measurement {nTransactions, t1, t2, status};
+            ++nTransactions;
         }
         gettimeofday(&t1, NULL);
-        if ( ((t1.tv_sec-t0.tv_sec)*1000000 + (t1.tv_usec-t0.tv_usec)) > FLAGS_duration*1000000)
+        if (((t1.tv_sec-t0.tv_sec)*1000000 + (t1.tv_usec-t0.tv_usec)) > FLAGS_duration*1000000)
             break;
     }
   
-    for (auto line : results) {
-        fprintf(fp, "%s", line.c_str());
+    for (auto& r : results) {
+        if (r.nTransaction == 0) {
+            // Skip the pre-filled elements   
+            break;
+        }
+        const auto latency = (r.end.tv_sec - r.start.tv_sec)*1000000 + (r.end.tv_usec - r.start.tv_usec);
+        fprintf(fp, "%d %ld.%06ld %ld.%06ld %ld %d\n",
+            r.nTransaction, r.start.tv_sec, r.start.tv_usec, r.end.tv_sec, r.end.tv_usec, latency, status?1:0);
+
+        if (r.status) {
+            tCount++;
+            tLatency += latency;
+        }
     }
 
     fprintf(fp, "# Commit_Ratio: %lf\n", (double)tCount/nTransactions);
@@ -234,10 +246,8 @@ void* client_thread_func(int ziplog_id, int cpu_id, zip::network::manager* manag
     auto ziplogClient = std::make_shared<zip::client::client>(
         *manager, kOrderAddr, ziplog_id, kZiplogShardId, cpu_id, FLAGS_ziplogClientRate);
     for (int i = 0; i < FLAGS_numClientFibers; i++) {
-        printf("txn id=%d\n", ziplog_id * FLAGS_numClientFibers + i);
         boost::fibers::fiber f(
-            client_fiber_func, ziplog_id * FLAGS_numClientFibers + i, ziplogClient,
-            manager->get_buffers(zip::consts::PAGE_SIZE, /* num_buffers */1));
+            client_fiber_func, ziplog_id * FLAGS_numClientFibers + i, ziplogClient, manager);
         client_fibers[i] = std::move(f);
     }
 
@@ -268,6 +278,8 @@ int main(int argc, char **argv) {
     sigaction(SIGSEGV, &sa, NULL);
 */
 
+    std::signal(SIGINT, [] (int signal) { std::cerr << "SIGINT caught\n"; exit(1); });
+
     // initialize the uniform distribution
     std::random_device rd;
     key_gen = std::mt19937(rd());
@@ -293,15 +305,16 @@ int main(int argc, char **argv) {
 //    const auto ziplog_id = FLAGS_nhost * FLAGS_numClientThreads;
 //    const auto cpu_id = 1;
     std::vector<std::unique_ptr<zip::network::manager>> managers;
-//    auto ziplogClient = std::make_shared<zip::client::client>(
-//        ziplogManager, kOrderAddr, ziplog_id, kZiplogShardId, cpu_id, kZiplogClientRate);
 
     std::vector<std::thread> client_thread_arr(FLAGS_numClientThreads);
     const auto id_base = FLAGS_nhost * FLAGS_numClientThreads;
     for (size_t i = 0; i < FLAGS_numClientThreads; i++) {
         managers.emplace_back(std::make_unique<zip::network::manager>(zip::consts::rdma::DEFAULT_DEVICE, zip::consts::rdma::DEFAULT_PORT));
-        // *2 for using the core of the same NUMA, *2 again because one ziplog client uses two cores
-        client_thread_arr[i] = std::thread(client_thread_func, id_base + i, 2 * i * 2 + 1, managers.back().get()); // TODO: comment
+        // *2 for using the core of the same NUMA, *2 again because one ziplog client uses one cores
+        client_thread_arr[i] = std::thread(client_thread_func, id_base + i, 2 * 2 * i + 1, managers.back().get());
+        zip::util::pin_thread(client_thread_arr[i], 2 * 2 * i + 3);
+        //client_thread_arr[i] = std::thread(client_thread_func, id_base + i, 3 * 2 * i + 1, managers.back().get());
+        //zip::util::pin_thread(client_thread_arr[i], 3 * 2 * i + 5);
         // client_thread_arr[i] = std::thread(client_fiber_func, i, ziplogClient);
         // uint8_t idx = i/2 + (i % 2) * 12;
         // erpc::bind_to_core(client_thread_arr[i], 0, i);

@@ -33,6 +33,7 @@
 
 #include "store/common/consts.h"
 #include "store/meerkatstore/meerkatir/client.h"
+#include "network/manager.h"
 
 #include <chrono>
 #include <cstring>
@@ -52,10 +53,10 @@ using namespace std;
 
 Client::Client(int nsthreads, int nShards, uint32_t id,
                std::shared_ptr<zip::client::client> client,
-               std::list<zip::network::buffer>&& buffer)
+               zip::network::manager& manager)
     : client_id(id), t_id(0),
       ziplogClient(client),
-      ziplogBuffer(std::move(buffer))
+      ziplogBuffer(manager.get_buffers(zip::consts::PAGE_SIZE, /* num_buffers */1))
 {
     // Have this assert as we'll only use the first element in the list later.
     Assert(ziplogBuffer.size() == 1);
@@ -78,6 +79,15 @@ Client::Client(int nsthreads, int nShards, uint32_t id,
     Warning("Initializing Meerkatstore client with id [%lu]", client_id);
 
     Debug("Meerkatstore client [%lu] created!", client_id);
+
+#ifdef ZIP_MEASURE
+    hdr_init(1, 10000, 3, &hist_get);
+    hdr_init(1, 10000, 3, &hist_commit);
+    hdr_init(1, 10000, 3, &hist_yield);
+    hdr_count_get = 0;
+    hdr_count_commit = 0;
+    hdr_count_yield = 0;
+#endif
 }
 
 /* Begins a transaction. All subsequent operations before a commit() or
@@ -88,7 +98,7 @@ Client::Client(int nsthreads, int nShards, uint32_t id,
 void
 Client::Begin()
 {
-    Debug("BEGIN [%lu]", t_id + 1);
+    Debug("BEGIN [%lu, %lu]", client_id, t_id + 1);
     // Initialize data structures.
     txn = Transaction();
     t_id++;
@@ -97,10 +107,10 @@ Client::Begin()
 /* Returns the value corresponding to the supplied key. */
 int Client::Get(const string &key, string &value, yield_t yield)
 {
-#ifdef MEASURE
+#ifdef ZIP_MEASURE
     auto start = std::chrono::high_resolution_clock::now();
 #endif
-    Debug("GET [%lu : %s]", t_id, key.c_str());
+    Debug("GET [%lu, %lu : %s]", client_id, t_id, key.c_str());
     
     // Read your own writes, check the write set first.
     if (txn.getWriteSet().find(key) != txn.getWriteSet().end()) {
@@ -125,19 +135,44 @@ int Client::Get(const string &key, string &value, yield_t yield)
     Assert(ziplogClient.get());
     ziplogClient->zipkat_get(request);
     while (request.timestamp.load(std::memory_order_acquire) == -1) {
-        yield();
-    }
-#ifdef MEASURE
-    std::cout << "Get takes " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count() << std::endl;
+#if ZIP_MEASURE
+    auto start2 = std::chrono::high_resolution_clock::now();
 #endif
+        yield();
+#ifdef ZIP_MEASURE
+    auto end2 = std::chrono::high_resolution_clock::now();
+    hdr_record_value(hist_yield, zip::util::time_in_us(end2 - start2));
+    if (++hdr_count_yield == 10000) {                     
+        hdr_count_yield = 0;
+        auto lat_50 = hdr_value_at_percentile(hist_yield, 50);
+        auto lat_99 = hdr_value_at_percentile(hist_yield, 99);
+        auto lat_999 = hdr_value_at_percentile(hist_yield, 99.9);
+        auto mean = hdr_mean(hist_yield);
+        std::cerr << "Client-yield (" << client_id << ") statistics: median latency: " << lat_50 << " us\t99% latency: " << lat_99 << " us\t99.9% latency: " << lat_999 << " us\tmean: " << mean << std::endl;;
+    }
+#endif
+    }
 
     const auto timestamp = request.timestamp.load(std::memory_order_relaxed);
+#ifdef ZIP_MEASURE
+    auto end = std::chrono::high_resolution_clock::now();
+    hdr_record_value(hist_get, zip::util::time_in_us(end - start));
+    if (++hdr_count_get == 10000) {                     
+        hdr_count_get = 0;
+        auto lat_50 = hdr_value_at_percentile(hist_get, 50);
+        auto lat_99 = hdr_value_at_percentile(hist_get, 99);
+        auto lat_999 = hdr_value_at_percentile(hist_get, 99.9);
+        auto mean = hdr_mean(hist_get);
+        std::cerr << "Client-get (" << client_id << ") statistics: median latency: " << lat_50 << " us\t99% latency: " << lat_99 << " us\t99.9% latency: " << lat_999 << " us\tmean: " << mean << std::endl;;
+    }
+#endif
+
     if (timestamp != zip::api::zipkat_get_response::kKeyNotFound) {
-        Debug("Adding [%s] with ts %lu", key.c_str(), timestamp);
+        Debug("[%lu] Adding [%s] with ts %lu", client_id, key.c_str(), timestamp);
         txn.addReadSet(key, timestamp);
         return REPLY_OK;
     } else {
-        Debug("%s not found", key.c_str());
+        Debug("[%lu] %s not found", client_id, key.c_str());
         return REPLY_FAIL;
     }
 }
@@ -151,11 +186,10 @@ int Client::Put(const string &key, const string &value)
     return REPLY_OK;
 }
 
-// This calls TryCommit, which will Commit if validation passes.
 // TODO: make better method name.
 int Client::Prepare(yield_t yield)
 {
-    Debug("PREPARE [%lu] ", t_id);
+    Debug("PREPARE [%lu, %lu] ", client_id, t_id);
     zip::client::client::request request;
     request.buffer = &ZiplogBuffer();
     request.response.store(-1, std::memory_order_release);
@@ -177,32 +211,54 @@ int Client::Prepare(yield_t yield)
     Assert(ziplogClient.get());
     ziplogClient->insert_after(request);
     while (request.response.load(std::memory_order_relaxed) == -1) {
+#if ZIP_MEASURE
+    auto start2 = std::chrono::high_resolution_clock::now();
+#endif
         yield();
+#ifdef ZIP_MEASURE
+    auto end2 = std::chrono::high_resolution_clock::now();
+    hdr_record_value(hist_yield, zip::util::time_in_us(end2 - start2));
+    if (++hdr_count_yield == 10000) {                     
+        hdr_count_yield = 0;
+        auto lat_50 = hdr_value_at_percentile(hist_yield, 50);
+        auto lat_99 = hdr_value_at_percentile(hist_yield, 99);
+        auto lat_999 = hdr_value_at_percentile(hist_yield, 99.9);
+        auto mean = hdr_mean(hist_yield);
+        std::cerr << "Client-yield (" << client_id << ") statistics: median latency: " << lat_50 << " us\t99% latency: " << lat_99 << " us\t99.9% latency: " << lat_999 << " us\tmean: " << mean << std::endl;;
     }
-    Debug("request.application_return=%lu", request.application_return); 
+#endif
+    }
+
+    Debug("[%lu] PREPARE gsn=%ld app_returns=%lu", client_id, request.response.load(std::memory_order_relaxed), request.application_return);
     return request.application_return;
 }
 
 /* Attempts to commit the ongoing transaction. */
 bool Client::Commit(yield_t yield)
 {
-#ifdef MEASURE
+#ifdef ZIP_MEASURE
     auto start = std::chrono::high_resolution_clock::now();
 #endif
     int status = Prepare(yield);
 
-    if (status == REPLY_OK) {
-        Debug("COMMIT [%lu]", t_id);
-#ifdef MEASURE
-        std::cout << "Commit succ takes " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count() << std::endl;
+#ifdef ZIP_MEASURE
+    auto end = std::chrono::high_resolution_clock::now();
+    hdr_record_value(hist_commit, zip::util::time_in_us(end - start));
+    if (++hdr_count_commit == 10000) {                     
+        hdr_count_commit = 0;
+        auto lat_50 = hdr_value_at_percentile(hist_commit, 50);
+        auto lat_99 = hdr_value_at_percentile(hist_commit, 99);
+        auto lat_999 = hdr_value_at_percentile(hist_commit, 99.9);
+        auto mean = hdr_mean(hist_commit);
+        std::cerr << "Client-commit (" << client_id << ") statistics: median latency: " << lat_50 << " us\t99% latency: " << lat_99 << " us\t99.9% latency: " << lat_999 << " us\tmean: " << mean << std::endl;
+    }
 #endif
+    if (status == REPLY_OK) {
+        Debug("COMMIT [%lu, %lu]", client_id, t_id);
         return true;
     }
 
-#ifdef MEASURE
-    std::cout << "Commit abort takes " << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count() << std::endl;
-#endif
-    Debug("ABORT [%lu]", t_id);
+    Debug("ABORT [%lu, %lu]", client_id, t_id);
     return false;
 }
 
