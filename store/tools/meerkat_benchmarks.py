@@ -40,6 +40,7 @@ Parameters = namedtuple('Parameters', [
     'ziplog_storage_binary',
     'client_cpus',
     'subscriber_cpus',
+    'get_cpus',
 
     # Client parameters. #######################################################
     # The client binary.
@@ -121,19 +122,21 @@ def clients():
         #RemoteHost('10.100.5.138'): {'phys_port'  : 1}, # platypus-1g
         #RemoteHost('10.100.5.23') : {'phys_port'  : 0}, # rhinoceros-1g
         #RemoteHost('10.100.5.25') : {'phys_port'  : 0}, # sloth-1g
-        RemoteHost('192.168.99.21') : {'phys_port'  : 0},
         RemoteHost('192.168.99.20') : {'phys_port'  : 0},
-        RemoteHost('192.168.99.17') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.21') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.22') : {'phys_port'  : 0},
         RemoteHost('192.168.99.24') : {'phys_port'  : 0},
         RemoteHost('192.168.99.25') : {'phys_port'  : 0},
-        #RemoteHost('192.168.99.26') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.26') : {'phys_port'  : 0},
         RemoteHost('192.168.99.27') : {'phys_port'  : 0},
-        RemoteHost('192.168.99.22') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.17') : {'phys_port'  : 0},
         RemoteHost('192.168.99.105') : {'phys_port'  : 0},
         RemoteHost('192.168.99.106') : {'phys_port'  : 0},
-        RemoteHost('192.168.99.16') : {'phys_port'  : 0},
-        RemoteHost('192.168.99.30') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.29') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.28') : {'phys_port'  : 0},
         #RemoteHost('192.168.99.18') : {'phys_port'  : 0},
+        #RemoteHost('192.168.99.16') : {'phys_port'  : 0},
+        #RemoteHost('192.168.99.30') : {'phys_port'  : 0},
     }
     #return {
     #    RemoteHost('10.100.1.2') : {'phys_port'  : 1}, # anteater
@@ -151,7 +154,7 @@ def clients():
 def ziplog_order_ips():
     return [
         '192.168.99.16',
-        #'192.168.99.29',
+        #'192.168.99.30',
     ]
 
 def ziplog_order_servers():
@@ -164,8 +167,8 @@ def ziplog_storage_servers():
     return {
         #RemoteHost('192.168.99.22') : {'phys_port'  : 0},
         #RemoteHost('192.168.99.28') : {'phys_port'  : 0},
-        #RemoteHost('192.168.99.29') : {'phys_port'  : 0},
-        RemoteHost('192.168.99.30') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.29') : {'phys_port'  : 0},
+        #RemoteHost('192.168.99.30') : {'phys_port'  : 0},
     }
 
 def num_clients_to_triple(num_clients):
@@ -352,13 +355,6 @@ def start_ziplog_order(ziplog_order_servers, parameters, bench_dir):
 
 def start_ziplog_storages(ziplog_storage_servers, parameters, bench_dir):
     shard_id = 0
-    # TODO: adjust cpus
-    #client_cpus = "1,3,5,7"
-    client_cpus = "1,3,5,7,9,11,13,15"
-    #client_cpus = "1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31"
-    #subscriber_cpus = "17,19,21,23";
-    subscriber_cpus = "17,19,21,23,25,27,29,31"
-    #subscriber_cpus = "0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30"
 
     # Start the servers.
     print(boxed('Starting ziplog storage servers.'))
@@ -384,9 +380,14 @@ def start_ziplog_storages(ziplog_storage_servers, parameters, bench_dir):
             "--shard_id", str(shard_id),
             "--replica_id", str(replica_index),
             "--client_cpus", str(parameters.client_cpus),
-            "--subscriber_cpus", str(parameters.subscriber_cpus),
+#            "--subscriber_cpus", str(parameters.subscriber_cpus),
+#            "--get_cpus", str(parameters.get_cpus),
             "--num_keys", str(parameters.num_keys),
         ]
+        if (parameters.subscriber_cpus):
+            cmd.append("--subscriber_cpus " + str(parameters.subscriber_cpus))
+        if (parameters.get_cpus):
+            cmd.append("--get_cpus " + str(parameters.get_cpus))
 
         # We capture the stdout and stderr of the servers using the trick
         # outlined in [1]. pyrem has some support for capturing stdout and
@@ -435,6 +436,22 @@ def kill_servers(ziplog_order_servers, ziplog_storage_servers):
         # while we debug.
         print('Running {} on {}.'.format(' '.join(cmd), server.hostname))
         kill_tasks.append(server.run(cmd))
+    parallel_kill_tasks = Parallel(kill_tasks, aggregate=True)
+    parallel_kill_tasks.start(wait=True)
+
+def kill_clients(ziplog_clients, parameters):
+    # We can't use PyREM's stop function because we need sudo priviledges
+    #parallel_server_tasks.stop()
+    kill_tasks = []
+    for host_i, client in enumerate(list(ziplog_clients.keys())[:parameters.num_client_machines]):
+        cmd = [
+            "killall -2 retwisClient",
+        ]
+
+        # Record (and print) the command we run, so that we can re-run it later
+        # while we debug.
+        print('Running {} on {}.'.format(' '.join(cmd), client.hostname))
+        kill_tasks.append(client.run(cmd))
     parallel_kill_tasks = Parallel(kill_tasks, aggregate=True)
     parallel_kill_tasks.start(wait=True)
 
@@ -530,21 +547,9 @@ def run_benchmark(bench_dir, clients, ziplog_order_servers, ziplog_storage_serve
 
     # Kill the clients if they're not finished.
     time.sleep(10 + parameters.benchmark_duration_seconds)
+    #time.sleep(3 * parameters.benchmark_duration_seconds)
     print(boxed('Killing clients'))
-    # We can't use PyREM's stop function because we need sudo priviledges
-    #parallel_server_tasks.stop()
-    kill_tasks = []
-    for host_i, client in enumerate(list(clients.keys())[:parameters.num_client_machines]):
-        cmd = [
-            "killall -9 retwisClient",
-        ]
-
-        # Record (and print) the command we run, so that we can re-run it later
-        # while we debug.
-        print('Running {} on {}.'.format(' '.join(cmd), client.hostname))
-        kill_tasks.append(client.run(cmd))
-    parallel_kill_tasks = Parallel(kill_tasks, aggregate=True)
-    parallel_kill_tasks.start(wait=True)
+    kill_clients(clients, parameters)
     bench_dir.write_string('clients_done_time.txt', str(datetime.datetime.now()))
 
     # Copy stdout and stderr files over.
@@ -636,6 +641,7 @@ def main(args):
         server_binary=args.server_binary,
         client_cpus="1",
         subscriber_cpus="3",
+        get_cpus="0",
         client_binary=args.client_binary,
         client_rate=100000,
         benchmark_duration_seconds=60,
