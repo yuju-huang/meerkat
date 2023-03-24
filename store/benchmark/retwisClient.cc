@@ -117,7 +117,6 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
 
         // Decide which type of retwis transaction it is going to be.
         ttype = rand() % 100;
-        //ttype = 30;
 
         if (ttype < 5) {
             // 5% - Add user transaction. 1,3
@@ -126,13 +125,15 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
             keyIdx.push_back(rand_key());
             sort(keyIdx.begin(), keyIdx.end());
 
-            if ((ret = client->Get(keys[keyIdx[0]], value, boost::this_fiber::yield))) {
-                Warning("Aborting due to %s %d", keys[keyIdx[0]].c_str(), ret);
+            int idx = keyIdx[0];
+            if ((ret = client->Get(keys[idx], idx, value, boost::this_fiber::yield))) {
+                Warning("Aborting due to %s %d", keys[idx].c_str(), ret);
                 status = false;
             }
 
             for (int i = 0; i < 3 && status; i++) {
-                client->Put(keys[keyIdx[i]], v);
+                int idx = keyIdx[i];
+                client->Put(keys[idx], idx, v);
             }
             ttype = 1;
         } else if (ttype < 20) {
@@ -142,11 +143,12 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
             sort(keyIdx.begin(), keyIdx.end());
 
             for (int i = 0; i < 2 && status; i++) {
-                if ((ret = client->Get(keys[keyIdx[i]], value, boost::this_fiber::yield))) {
-                    Warning("Aborting due to %s %d", keys[keyIdx[i]].c_str(), ret);
+                int idx = keyIdx[i];
+                if ((ret = client->Get(keys[idx], idx, value, boost::this_fiber::yield))) {
+                    Warning("Aborting due to %s %d", keys[idx].c_str(), ret);
                     status = false;
                 }
-                client->Put(keys[keyIdx[i]], v);
+                client->Put(keys[idx], idx, v);
             }
             ttype = 2;
         } else if (ttype < 50) {
@@ -159,14 +161,16 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
             sort(keyIdx.begin(), keyIdx.end());
 
             for (int i = 0; i < 3 && status; i++) {
-                if ((ret = client->Get(keys[keyIdx[i]], value, boost::this_fiber::yield))) {
-                    Warning("Aborting due to %d %s %d", keyIdx[i], keys[keyIdx[i]].c_str(), ret);
+                int idx = keyIdx[i];
+                if ((ret = client->Get(keys[idx], idx, value, boost::this_fiber::yield))) {
+                    Warning("Aborting due to %d %s %d", idx, keys[idx].c_str(), ret);
                     status = false;
                 }
-                client->Put(keys[keyIdx[i]], v);
+                client->Put(keys[idx], idx, v);
             }
             for (int i = 0; i < 2; i++) {
-                client->Put(keys[keyIdx[i+3]], v);
+                int idx = keyIdx[i+3];
+                client->Put(keys[idx], idx, v);
             }
             ttype = 3;
         } else {
@@ -178,8 +182,9 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
 
             sort(keyIdx.begin(), keyIdx.end());
             for (int i = 0; i < nGets && status; i++) {
-                if ((ret = client->Get(keys[keyIdx[i]], value, boost::this_fiber::yield))) {
-                    Warning("Aborting due to %s %d", keys[keyIdx[i]].c_str(), ret);
+                int idx = keyIdx[i];
+                if ((ret = client->Get(keys[idx], idx, value, boost::this_fiber::yield))) {
+                    Warning("Aborting due to %s %d", keys[idx].c_str(), ret);
                     status = false;
                 }
             }
@@ -311,10 +316,13 @@ int main(int argc, char **argv) {
     for (size_t i = 0; i < FLAGS_numClientThreads; i++) {
         managers.emplace_back(std::make_unique<zip::network::manager>(zip::consts::rdma::DEFAULT_DEVICE, zip::consts::rdma::DEFAULT_PORT));
         // *2 for using the core of the same NUMA, *2 again because one ziplog client uses one cores
+#ifdef ZIPKAT_SEPARATE_THREAD
+        client_thread_arr[i] = std::thread(client_thread_func, id_base + i, 3 * 2 * i + 1, managers.back().get());
+        zip::util::pin_thread(client_thread_arr[i], 3 * 2 * i + 5);
+#else
         client_thread_arr[i] = std::thread(client_thread_func, id_base + i, 2 * 2 * i + 1, managers.back().get());
         zip::util::pin_thread(client_thread_arr[i], 2 * 2 * i + 3);
-        //client_thread_arr[i] = std::thread(client_thread_func, id_base + i, 3 * 2 * i + 1, managers.back().get());
-        //zip::util::pin_thread(client_thread_arr[i], 3 * 2 * i + 5);
+#endif
         // client_thread_arr[i] = std::thread(client_fiber_func, i, ziplogClient);
         // uint8_t idx = i/2 + (i % 2) * 12;
         // erpc::bind_to_core(client_thread_arr[i], 0, i);

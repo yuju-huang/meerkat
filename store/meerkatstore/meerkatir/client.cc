@@ -42,10 +42,6 @@
 #include <limits.h>
 #include <thread>
 
-#include <iostream>
-
-// #define MEASURE 1
-
 namespace meerkatstore {
 namespace meerkatir {
 
@@ -105,7 +101,7 @@ Client::Begin()
 }
 
 /* Returns the value corresponding to the supplied key. */
-int Client::Get(const string &key, string &value, yield_t yield)
+int Client::Get(const string &key, int idx, string &value, yield_t yield)
 {
 #ifdef ZIP_MEASURE
     auto start = std::chrono::high_resolution_clock::now();
@@ -135,6 +131,7 @@ int Client::Get(const string &key, string &value, yield_t yield)
     Assert(ziplogClient.get());
     ziplogClient->zipkat_get(request);
     while (request.timestamp.load(std::memory_order_acquire) == -1) {
+/*
 #if ZIP_MEASURE
     auto start2 = std::chrono::high_resolution_clock::now();
 #endif
@@ -151,6 +148,8 @@ int Client::Get(const string &key, string &value, yield_t yield)
         std::cerr << "Client-yield (" << client_id << ") statistics: median latency: " << lat_50 << " us\t99% latency: " << lat_99 << " us\t99.9% latency: " << lat_999 << " us\tmean: " << mean << std::endl;;
     }
 #endif
+*/
+        yield();
     }
 
     const auto timestamp = request.timestamp.load(std::memory_order_relaxed);
@@ -166,10 +165,9 @@ int Client::Get(const string &key, string &value, yield_t yield)
         std::cerr << "Client-get (" << client_id << ") statistics: median latency: " << lat_50 << " us\t99% latency: " << lat_99 << " us\t99.9% latency: " << lat_999 << " us\tmean: " << mean << std::endl;;
     }
 #endif
-
     if (timestamp != zip::api::zipkat_get_response::kKeyNotFound) {
         Debug("[%lu] Adding [%s] with ts %lu", client_id, key.c_str(), timestamp);
-        txn.addReadSet(key, timestamp);
+        txn.addReadSet(key, idx, timestamp);
         return REPLY_OK;
     } else {
         Debug("[%lu] %s not found", client_id, key.c_str());
@@ -178,11 +176,11 @@ int Client::Get(const string &key, string &value, yield_t yield)
 }
 
 /* Sets the value corresponding to the supplied key. */
-int Client::Put(const string &key, const string &value)
+int Client::Put(const string &key, int idx, const string &value)
 {
     Debug("PUT [%lu : %s]", t_id, key.c_str());
     // Update the write set.
-    txn.addWriteSet(key, value);
+    txn.addWriteSet(key, idx, value);
     return REPLY_OK;
 }
 
@@ -211,6 +209,7 @@ int Client::Prepare(yield_t yield)
     Assert(ziplogClient.get());
     ziplogClient->insert_after(request);
     while (request.response.load(std::memory_order_relaxed) == -1) {
+/*
 #if ZIP_MEASURE
     auto start2 = std::chrono::high_resolution_clock::now();
 #endif
@@ -227,6 +226,8 @@ int Client::Prepare(yield_t yield)
         std::cerr << "Client-yield (" << client_id << ") statistics: median latency: " << lat_50 << " us\t99% latency: " << lat_99 << " us\t99.9% latency: " << lat_999 << " us\tmean: " << mean << std::endl;;
     }
 #endif
+*/
+        yield();
     }
 
     Debug("[%lu] PREPARE gsn=%ld app_returns=%lu", client_id, request.response.load(std::memory_order_relaxed), request.application_return);

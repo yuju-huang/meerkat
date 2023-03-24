@@ -12,9 +12,12 @@
 using namespace std;
 
 Transaction::Transaction() :
-    readSet(), writeSet() { }
+    readSet(10), writeSet(5) { }
 
 Transaction::Transaction(uint8_t nr_reads, uint8_t nr_writes, char* buf) {
+    // no coming here at the client side
+    assert(false);
+
     auto *read_ptr = reinterpret_cast<read_t *> (buf);
     for (int i = 0; i < nr_reads; i++) {
         readSet[std::string(read_ptr->key, 64)] = Timestamp(read_ptr->timestamp);
@@ -43,17 +46,17 @@ Transaction::getWriteSet() const
 }
 
 void
-Transaction::addReadSet(const string &key,
-                        const Timestamp &readTime)
+Transaction::addReadSet(const string &key, int idx, const Timestamp &readTime)
 {
     readSet[key] = readTime;
+    keyIndexes.emplace(idx);
 }
 
 void
-Transaction::addWriteSet(const string &key,
-                         const string &value)
+Transaction::addWriteSet(const string &key, int idx, const string &value)
 {
     writeSet[key] = value;
+    keyIndexes.emplace(idx);
 }
 
 void Transaction::serialize(char *reqBuf) const {
@@ -70,6 +73,12 @@ void Transaction::serialize(char *reqBuf) const {
         std::memcpy(write_ptr->value, write.second.c_str(), 64);
         write_ptr++;
     }
+
+    auto index_ptr = reinterpret_cast<int *>(write_ptr);
+    for (auto idx : keyIndexes) {
+        *index_ptr = idx;
+        index_ptr++;
+    }
 }
 
 void
@@ -77,4 +86,5 @@ Transaction::clear()
 {
     readSet.clear();
     writeSet.clear();
+    keyIndexes.clear();
 }

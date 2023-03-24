@@ -13,6 +13,7 @@
 #include "lib/message.h"
 #include "store/common/timestamp.h"
 
+#include <set>
 #include <string>
 #include <unordered_map>
 
@@ -63,25 +64,25 @@ private:
     ReadSetMap readSet;
 
     // map between key and value(s)
-    //std::unordered_map<std::string, std::string> writeSet;
     WriteSetMap writeSet;
+
+    // all the key indexes that help faster conflict check
+    std::set<int> keyIndexes;
 
 public:
     Transaction();
     Transaction(uint8_t nr_reads, uint8_t nr_writes, char* buf);
     ~Transaction();
 
-    //const std::unordered_map<std::string, Timestamp>& getReadSet() const;
     const ReadSetMap& getReadSet() const;
-    //const std::unordered_map<std::string, std::string>& getWriteSet() const;
     const WriteSetMap& getWriteSet() const;
 
-    void addReadSet(const std::string &key, const Timestamp &readTime);
-    void addWriteSet(const std::string &key, const std::string &value);
+    void addReadSet(const std::string &key, int idx, const Timestamp &readTime);
+    void addWriteSet(const std::string &key, int idx, const std::string &value);
     void serialize(char *reqBuf) const;
     void clear();
-    unsigned long serializedSize() {
-        return readSet.size() * sizeof(read_t) + writeSet.size() * sizeof(write_t);
+    unsigned long serializedSize() const {
+        return readSet.size() * sizeof(read_t) + writeSet.size() * sizeof(write_t) + keyIndexes.size() * sizeof(int);
     }
 };
 
