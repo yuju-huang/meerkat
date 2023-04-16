@@ -96,6 +96,9 @@ private:
     hdr_histogram* hist_yield;
     int hdr_count_yield;
 #endif
+
+    // TODO: remove
+    //char* buf;
 };
 
 } // namespace meerkatir

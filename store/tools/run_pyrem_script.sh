@@ -4,7 +4,7 @@ ZIPLOG_ORDER_PORT=5813
 python3 e1_e2.py \
 		--ziplog_order_binary ${ZIPKAT_PATH}/order \
         --ziplog_order_port ${ZIPLOG_ORDER_PORT} \
-        --ziplog_order_cpus "3" \
+        --ziplog_order_cpus "12" \
 		--ziplog_storage_binary ${ZIPKAT_PATH}/storage \
 		--client_binary ${ZIPKAT_PATH}/retwisClient     \
 		--config_file_directory ${ZIPKAT_PATH}          \

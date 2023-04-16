@@ -42,6 +42,8 @@
 #include <limits.h>
 #include <thread>
 
+#include <iostream>
+
 namespace meerkatstore {
 namespace meerkatir {
 
@@ -84,6 +86,11 @@ Client::Client(int nsthreads, int nShards, uint32_t id,
     hdr_count_commit = 0;
     hdr_count_yield = 0;
 #endif
+
+    txn = Transaction();
+
+    // TODO: remove
+    //buf = (char*)malloc(1024);
 }
 
 /* Begins a transaction. All subsequent operations before a commit() or
@@ -96,13 +103,19 @@ Client::Begin()
 {
     Debug("BEGIN [%lu, %lu]", client_id, t_id + 1);
     // Initialize data structures.
-    txn = Transaction();
+    txn.clear();
+    // txn = Transaction();
     t_id++;
 }
 
 /* Returns the value corresponding to the supplied key. */
 int Client::Get(const string &key, int idx, string &value, yield_t yield)
 {
+#if 0
+    Debug("GET [%lu, %lu : %s]", client_id, t_id, key.c_str());
+    txn.addReadSet(key, idx, 0);
+    return REPLY_OK;
+#else
 #ifdef ZIP_MEASURE
     auto start = std::chrono::high_resolution_clock::now();
 #endif
@@ -173,20 +186,28 @@ int Client::Get(const string &key, int idx, string &value, yield_t yield)
         Debug("[%lu] %s not found", client_id, key.c_str());
         return REPLY_FAIL;
     }
+#endif
 }
 
 /* Sets the value corresponding to the supplied key. */
 int Client::Put(const string &key, int idx, const string &value)
 {
-    Debug("PUT [%lu : %s]", t_id, key.c_str());
+#if 0
+    return REPLY_OK;
+#else
+    Debug("PUT [%lu, %lu : %s]", client_id, t_id, key.c_str());
     // Update the write set.
     txn.addWriteSet(key, idx, value);
     return REPLY_OK;
+#endif
 }
 
 // TODO: make better method name.
 int Client::Prepare(yield_t yield)
 {
+#if 0
+    return REPLY_OK;
+#else
     Debug("PREPARE [%lu, %lu] ", client_id, t_id);
     zip::client::client::request request;
     request.buffer = &ZiplogBuffer();
@@ -203,6 +224,7 @@ int Client::Prepare(yield_t yield)
     commit_req->nr_reads = txn.getReadSet().size();
     commit_req->nr_writes = txn.getWriteSet().size();
     txn.serialize((char*)commit_req->data);
+    //txn.serialize(buf);
     req.data_length = commit_req->length();
 
     Assert(req.length() < ZiplogBuffer().length());
@@ -232,11 +254,15 @@ int Client::Prepare(yield_t yield)
 
     Debug("[%lu] PREPARE gsn=%ld app_returns=%lu", client_id, request.response.load(std::memory_order_relaxed), request.application_return);
     return request.application_return;
+#endif
 }
 
 /* Attempts to commit the ongoing transaction. */
 bool Client::Commit(yield_t yield)
 {
+#if 0
+    return true;
+#else
 #ifdef ZIP_MEASURE
     auto start = std::chrono::high_resolution_clock::now();
 #endif
@@ -261,6 +287,7 @@ bool Client::Commit(yield_t yield)
 
     Debug("ABORT [%lu, %lu]", client_id, t_id);
     return false;
+#endif
 }
 
 /* Aborts the ongoing transaction. */

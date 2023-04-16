@@ -23,6 +23,8 @@
 
 using namespace std;
 
+//#define ZIPKAT_SEPARATE_THREAD 1
+
 // Function to pick a random key according to some distribution.
 int rand_key();
 
@@ -91,7 +93,7 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
                                         global_thread_id, ziplogClient, *manager);
     struct timeval t0, t1, t2;
 
-    uint64_t nTransactions = 1;
+    uint64_t nTransactions = 0;
     int tCount = 0;
     double tLatency = 0.0;
     int getCount = 0;
@@ -117,6 +119,7 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
 
         // Decide which type of retwis transaction it is going to be.
         ttype = rand() % 100;
+        //ttype = 30;
 
         if (ttype < 5) {
             // 5% - Add user transaction. 1,3
@@ -160,6 +163,7 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
             keyIdx.push_back(rand_key());
             sort(keyIdx.begin(), keyIdx.end());
 
+            //for (int i = 0; i < 1 && status; i++) {
             for (int i = 0; i < 3 && status; i++) {
                 int idx = keyIdx[i];
                 if ((ret = client->Get(keys[idx], idx, value, boost::this_fiber::yield))) {
@@ -169,7 +173,9 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
                 client->Put(keys[idx], idx, v);
             }
             for (int i = 0; i < 2; i++) {
+            //for (int i = 0; i < 5; i++) {
                 int idx = keyIdx[i+3];
+                //client->Put(keys[keyIdx[i]], v);
                 client->Put(keys[idx], idx, v);
             }
             ttype = 3;
@@ -211,7 +217,7 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
             if (nTransactions > results.size())
                 results.emplace_back(measurement{nTransactions, t1, t2, status});
             else
-                results[nTransactions - 1] = measurement {nTransactions, t1, t2, status};
+                results[nTransactions] = measurement {nTransactions + 1, t1, t2, status};
             ++nTransactions;
         }
         gettimeofday(&t1, NULL);
@@ -226,7 +232,7 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
         }
         const auto latency = (r.end.tv_sec - r.start.tv_sec)*1000000 + (r.end.tv_usec - r.start.tv_usec);
         fprintf(fp, "%d %ld.%06ld %ld.%06ld %ld %d\n",
-            r.nTransaction, r.start.tv_sec, r.start.tv_usec, r.end.tv_sec, r.end.tv_usec, latency, status?1:0);
+            r.nTransaction, r.start.tv_sec, r.start.tv_usec, r.end.tv_sec, r.end.tv_usec, latency, r.status?1:0);
 
         if (r.status) {
             tCount++;
@@ -314,18 +320,34 @@ int main(int argc, char **argv) {
     std::vector<std::thread> client_thread_arr(FLAGS_numClientThreads);
     const auto id_base = FLAGS_nhost * FLAGS_numClientThreads;
     for (size_t i = 0; i < FLAGS_numClientThreads; i++) {
-        managers.emplace_back(std::make_unique<zip::network::manager>(zip::consts::rdma::DEFAULT_DEVICE, zip::consts::rdma::DEFAULT_PORT));
+        managers.emplace_back(std::make_unique<zip::network::manager>(zip::consts::rdma::DEFAULT_DEVICE, zip::consts::rdma::DEFAULT_PORT, zip::consts::rdma::DEFAULT_GID));
         // *2 for using the core of the same NUMA, *2 again because one ziplog client uses one cores
 #ifdef ZIPKAT_SEPARATE_THREAD
         client_thread_arr[i] = std::thread(client_thread_func, id_base + i, 3 * 2 * i + 1, managers.back().get());
         zip::util::pin_thread(client_thread_arr[i], 3 * 2 * i + 5);
 #else
-        client_thread_arr[i] = std::thread(client_thread_func, id_base + i, 2 * 2 * i + 1, managers.back().get());
-        zip::util::pin_thread(client_thread_arr[i], 2 * 2 * i + 3);
+        int ziplog_core;
+        int txn_core;
+        // TODO: use const for determining the 4, it's basically related to # of real (not hyper) cores on a machine.
+#if 1
+        if (i < 4) {
+            ziplog_core = 2 * 2 * i + 1;
+            txn_core = 2 * 2 * i + 3;
+        } else {
+            ziplog_core = 2 * 2 * (i - 4);
+            txn_core = 2 * 2 * (i - 4) + 2;
+        }
+#else
+        // Try using hyper cores.
+        ziplog_core = 16 + 2 * i + 1; //2 * i + 1;
+        txn_core = 2 * i + 1; //16 + 2 * i + 1;
 #endif
+        client_thread_arr[i] = std::thread(client_thread_func, id_base + i, ziplog_core, managers.back().get());
+        zip::util::pin_thread(client_thread_arr[i], txn_core);
         // client_thread_arr[i] = std::thread(client_fiber_func, i, ziplogClient);
         // uint8_t idx = i/2 + (i % 2) * 12;
         // erpc::bind_to_core(client_thread_arr[i], 0, i);
+#endif
     }
     for (auto &thread : client_thread_arr) thread.join();
 

@@ -13,6 +13,7 @@
 #include "lib/message.h"
 #include "store/common/timestamp.h"
 
+#include <map>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -53,8 +54,10 @@ struct write_t {
         char value[64];
 };
 
-typedef std::unordered_map<std::string, Timestamp> ReadSetMap;
-typedef std::unordered_map<std::string, std::string> WriteSetMap;
+typedef std::map<std::string, Timestamp> ReadSetMap;
+typedef std::map<std::string, std::string> WriteSetMap;
+//typedef std::unordered_map<std::string, Timestamp> ReadSetMap;
+//typedef std::unordered_map<std::string, std::string> WriteSetMap;
 
 class Transaction {
 private:

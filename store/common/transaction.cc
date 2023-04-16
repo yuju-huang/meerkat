@@ -12,7 +12,8 @@
 using namespace std;
 
 Transaction::Transaction() :
-    readSet(10), writeSet(5) { }
+    readSet(), writeSet() { }
+    //readSet(10), writeSet(5) { }
 
 Transaction::Transaction(uint8_t nr_reads, uint8_t nr_writes, char* buf) {
     // no coming here at the client side

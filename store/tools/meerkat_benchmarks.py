@@ -122,20 +122,23 @@ def clients():
         #RemoteHost('10.100.5.138'): {'phys_port'  : 1}, # platypus-1g
         #RemoteHost('10.100.5.23') : {'phys_port'  : 0}, # rhinoceros-1g
         #RemoteHost('10.100.5.25') : {'phys_port'  : 0}, # sloth-1g
-        RemoteHost('192.168.99.20') : {'phys_port'  : 0},
         RemoteHost('192.168.99.21') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.20') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.16') : {'phys_port'  : 0},
         RemoteHost('192.168.99.22') : {'phys_port'  : 0},
         RemoteHost('192.168.99.24') : {'phys_port'  : 0},
         RemoteHost('192.168.99.25') : {'phys_port'  : 0},
         RemoteHost('192.168.99.26') : {'phys_port'  : 0},
-        RemoteHost('192.168.99.27') : {'phys_port'  : 0},
-        RemoteHost('192.168.99.17') : {'phys_port'  : 0},
-        RemoteHost('192.168.99.105') : {'phys_port'  : 0},
-        RemoteHost('192.168.99.106') : {'phys_port'  : 0},
-        RemoteHost('192.168.99.29') : {'phys_port'  : 0},
         RemoteHost('192.168.99.28') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.29') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.30') : {'phys_port'  : 0},
+        #RemoteHost('192.168.99.105') : {'phys_port'  : 0},
+        #RemoteHost('192.168.99.106') : {'phys_port'  : 0},
+        #RemoteHost('192.168.99.17') : {'phys_port'  : 0},
+        ##RemoteHost('192.168.99.27') : {'phys_port'  : 0},
+        #RemoteHost('192.168.99.29') : {'phys_port'  : 0},
+        #RemoteHost('192.168.99.28') : {'phys_port'  : 0},
         #RemoteHost('192.168.99.18') : {'phys_port'  : 0},
-        #RemoteHost('192.168.99.16') : {'phys_port'  : 0},
         #RemoteHost('192.168.99.30') : {'phys_port'  : 0},
     }
     #return {
@@ -153,7 +156,8 @@ def clients():
 
 def ziplog_order_ips():
     return [
-        '192.168.99.16',
+        #'192.168.99.16',
+        '192.168.99.17',
         #'192.168.99.30',
     ]
 
@@ -167,8 +171,10 @@ def ziplog_storage_servers():
     return {
         #RemoteHost('192.168.99.22') : {'phys_port'  : 0},
         #RemoteHost('192.168.99.28') : {'phys_port'  : 0},
-        RemoteHost('192.168.99.29') : {'phys_port'  : 0},
+        #RemoteHost('192.168.99.29') : {'phys_port'  : 0},
         #RemoteHost('192.168.99.30') : {'phys_port'  : 0},
+        RemoteHost('192.168.99.31') : {'phys_port'  : 0},
+        #RemoteHost('192.168.99.16') : {'phys_port'  : 0},
     }
 
 def num_clients_to_triple(num_clients):
@@ -347,7 +353,7 @@ def start_ziplog_order(ziplog_order_servers, parameters, bench_dir):
         bench_dir.write_string(
             'ziplog_order_{}_cmd.txt'.format(server.hostname),
             ' '.join(cmd) + '\n')
-        tasks.append(server.run(drop_caches_cmd + core_dump_cmd + max_open_files_cmd + cmd))
+        tasks.append(server.run(drop_caches_cmd + core_dump_cmd + max_open_files_cmd + cmd, quiet=True))
     parallel_server_tasks = Parallel(tasks, aggregate=True)
     parallel_server_tasks.start()
     print('Waiting for ziplog order servers to start.')
@@ -375,6 +381,7 @@ def start_ziplog_storages(ziplog_storage_servers, parameters, bench_dir):
     for (replica_index, server) in enumerate(sorted(list(ziplog_storage_servers.keys()), key=lambda h: h.hostname)[:2*parameters.f + 1]):
         cmd = [
             #"sudo",
+            #"numactl -m 1",
             parameters.ziplog_storage_binary,
             "--order", ziplog_order_ips()[0] + ":" + str(parameters.ziplog_order_port),
             "--shard_id", str(shard_id),
@@ -404,11 +411,11 @@ def start_ziplog_storages(ziplog_storage_servers, parameters, bench_dir):
         bench_dir.write_string(
             'ziplog_storage_{}_cmd.txt'.format(server.hostname),
             ' '.join(cmd) + '\n')
-        tasks.append(server.run(drop_caches_cmd + core_dump_cmd + max_open_files_cmd + cmd))
+        tasks.append(server.run(drop_caches_cmd + core_dump_cmd + max_open_files_cmd + cmd, quiet=True))
     parallel_server_tasks = Parallel(tasks, aggregate=True)
     parallel_server_tasks.start()
     print('Waiting for ziplog storage servers to start.')
-    time.sleep(5 + parameters.num_keys / 300000)
+    time.sleep(2 + parameters.num_keys / 300000)
 
 def kill_servers(ziplog_order_servers, ziplog_storage_servers):
     # Kill ziplog orders
@@ -496,11 +503,12 @@ def run_benchmark(bench_dir, clients, ziplog_order_servers, ziplog_storage_serve
     for host_i, client in enumerate(list(clients.keys())[:parameters.num_client_machines]):
         for client_i in range(parameters.num_clients_per_machine):
             cmd = [
-                "ulimit -n 8192;" , # increase how many fds we can open
+                #"ulimit -n 8192;" , # increase how many fds we can open
                 #"valgrind --leak-check=yes",
                 #"perf stat -B --delay 40000 -I 20000 -e cycles,instructions",
                 #"DEBUG=all",
-                "LD_LIBRARY_PATH=/home/yh885/zipkat",
+                #"LD_LIBRARY_PATH=/home/yh885/zipkat",
+                #"numactl -m 1",
                 parameters.client_binary,
                 "--configFile", os.path.join(
                     parameters.config_file_directory,
@@ -546,11 +554,16 @@ def run_benchmark(bench_dir, clients, ziplog_order_servers, ziplog_storage_serve
     #parallel_client_tasks.start(wait=True)
 
     # Kill the clients if they're not finished.
-    time.sleep(10 + parameters.benchmark_duration_seconds)
+    time.sleep(15 + parameters.benchmark_duration_seconds)
     #time.sleep(3 * parameters.benchmark_duration_seconds)
     print(boxed('Killing clients'))
     kill_clients(clients, parameters)
     bench_dir.write_string('clients_done_time.txt', str(datetime.datetime.now()))
+
+    # Kill the servers.
+    print(boxed('Killing servers.'))
+    kill_servers(ziplog_order_servers, ziplog_storage_servers)
+    bench_dir.write_string('servers_killed_time.txt', str(datetime.datetime.now()))
 
     # Copy stdout and stderr files over.
     print(boxed('Copying *_out.txt and *_err.txt.'))
@@ -595,12 +608,6 @@ def run_benchmark(bench_dir, clients, ziplog_order_servers, ziplog_storage_serve
         results = None
 
     bench_dir.write_string('logs_processed_time.txt', str(datetime.datetime.now()))
-
-    # Kill the servers.
-    print(boxed('Killing servers.'))
-    kill_servers(ziplog_order_servers, ziplog_storage_servers)
-
-    bench_dir.write_string('servers_killed_time.txt', str(datetime.datetime.now()))
 
     return results
 
