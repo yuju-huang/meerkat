@@ -4,9 +4,9 @@
 
 CC = gcc
 #CXX = c++
-CXX = clang++
+CXX = clang++-14
 #LD = g++
-LD = clang++
+LD = clang++-14
 EXPAND = lib/tmpl/expand
 
 ERPC_PATH= "./third_party/eRPC"
