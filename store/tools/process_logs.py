@@ -17,7 +17,7 @@ LogEntry = collections.namedtuple('LogEntry', [
     'start_time_sec',
     'end_time_sec',
     'latency_micros',
-    'success',
+    'status',
     'txn_type',
     'extra',
 ])
@@ -27,7 +27,11 @@ BenchmarkResult = collections.namedtuple('BenchmarkResult', [
     'num_transactions',
     'num_successful_transactions',
     'num_failed_transactions',
+    'num_failed_write_transactions',
+    'num_failed_readonly_transactions',
     'abort_rate',
+    'write_txn_abort_rate',
+    'readonly_txn_abort_rate',
 
     # Throughputs.
     'throughput_all',
@@ -140,10 +144,16 @@ def process_IA_microbench_logs(client_log_filename):
         extra_failure = 0,
     )
 
+kSuccTxnStatus = 1
+kAbortWriteTxnStatus = 2
+kAbortReadonlyTxnStatus = 3
+
 def process_log(lines, conn):
     all_lats = []
     succ_lats = []
     fail_lats = []
+    fail_write_txn_lats = []
+    fail_read_txn_lats = []
 
     for line in lines:
         parts = line.strip().split()
@@ -158,11 +168,17 @@ def process_log(lines, conn):
 
         lat = int(parts[3])
         all_lats.append(lat)
-        if bool(int(parts[4])):
+        status = int(parts[4])
+        if status == kSuccTxnStatus:
             succ_lats.append(lat)
         else:
             fail_lats.append(lat)
-    conn.send([all_lats, succ_lats, fail_lats])
+            if status == kAbortWriteTxnStatus:
+                fail_write_txn_lats.append(lat)
+            else:
+                fail_read_txn_lats.append(lat)
+                
+    conn.send([all_lats, succ_lats, fail_lats, fail_write_txn_lats, fail_read_txn_lats])
 
 def process_client_logs_parallel(client_log_filename, warmup_sec, duration_sec):
     """Processes a concatenation of client logs.
@@ -184,7 +200,7 @@ def process_client_logs_parallel(client_log_filename, warmup_sec, duration_sec):
         - the second column is the start time of the txn (in seconds),
         - the third column is the end time of the txn (in seconds),
         - the fourth column is the latency of the transaction in microseconds,
-        - the fifth column is 1 if the txn was successful and 0 otherwise,
+        - the fifth column is 1 if the txn was successful and 2 if write-txn abort, and 3 if readonly-txn abort.
         - the sixth column is the transaction type,
         - the seventh column is the number of extra retries.
 
@@ -233,6 +249,8 @@ def process_client_logs_parallel(client_log_filename, warmup_sec, duration_sec):
     all_latencies = []
     success_latencies = []
     failure_latencies = []
+    failure_write_txn_latencies = []
+    failure_readonly_txn_latencies = []
     follow_txn_success_latencies = []
     tweet_txn_success_latencies = []
 
@@ -245,6 +263,8 @@ def process_client_logs_parallel(client_log_filename, warmup_sec, duration_sec):
         all_latencies += ret[0]
         success_latencies += ret[1]
         failure_latencies += ret[2]
+        failure_write_txn_latencies += ret[3]
+        failure_readonly_txn_latencies += ret[4]
 
     if len(all_latencies) == 0:
         raise ValueError("Zero completed transactions.")
@@ -252,16 +272,24 @@ def process_client_logs_parallel(client_log_filename, warmup_sec, duration_sec):
     all_latencies.sort()
     success_latencies.sort()
     failure_latencies.sort()
+    failure_write_txn_latencies.sort()
+    failure_readonly_txn_latencies.sort()
 
     num_transactions = len(all_latencies)
     num_successful_transactions = len(success_latencies)
     num_failed_transactions = len(failure_latencies)
+    num_failed_write_transactions = len(failure_write_txn_latencies)
+    num_failed_readonly_transactions = len(failure_readonly_txn_latencies)
 
     return BenchmarkResult(
         num_transactions = num_transactions,
         num_successful_transactions = num_successful_transactions,
         num_failed_transactions = num_failed_transactions,
+        num_failed_write_transactions = num_failed_write_transactions,
+        num_failed_readonly_transactions = num_failed_readonly_transactions,
         abort_rate = float(num_failed_transactions) / num_transactions,
+        write_txn_abort_rate = float(num_failed_write_transactions) / num_transactions,
+        readonly_txn_abort_rate = float(num_failed_readonly_transactions) / num_transactions,
 
         throughput_all = float(num_transactions) / duration_sec,
         throughput_success = float(num_successful_transactions) / duration_sec,
@@ -307,7 +335,7 @@ def process_client_logs(client_log_filename, warmup_sec, duration_sec):
         - the second column is the start time of the txn (in seconds),
         - the third column is the end time of the txn (in seconds),
         - the fourth column is the latency of the transaction in microseconds,
-        - the fifth column is 1 if the txn was successful and 0 otherwise,
+        - the fifth column is 1 if the txn was successful and 2 if write-txn abort, and 3 if readonly-txn abort.
         - the sixth column is the transaction type,
         - the seventh column is the number of extra retries.
 
@@ -337,7 +365,7 @@ def process_client_logs(client_log_filename, warmup_sec, duration_sec):
                 start_time_sec=float(parts[1]),
                 end_time_sec=float(parts[2]),
                 latency_micros=int(parts[3]),
-                success=bool(int(parts[4])),
+                status=bool(int(parts[4])),
                 txn_type=txn_type,
                 extra=extra,
             ))
@@ -353,6 +381,8 @@ def process_client_logs(client_log_filename, warmup_sec, duration_sec):
     all_latencies = []
     success_latencies = []
     failure_latencies = []
+    failure_writetxn_latencies = []
+    failure_readonlytxn_latencies = []
     follow_txn_success_latencies = []
     tweet_txn_success_latencies = []
 
@@ -370,7 +400,7 @@ def process_client_logs(client_log_filename, warmup_sec, duration_sec):
         all_latencies.append(entry.latency_micros)
         all_num_extra += entry.extra
 
-        if entry.success:
+        if entry.status == kSuccTxnStatus:
             success_latencies.append(entry.latency_micros)
             success_num_extra += entry.extra
             if entry.txn_type == 2:
@@ -380,6 +410,10 @@ def process_client_logs(client_log_filename, warmup_sec, duration_sec):
         else:
             failure_latencies.append(entry.latency_micros)
             failure_num_extra += entry.extra
+            if entry.status == kAbortWriteTxnStatus:
+                failure_writetxn_latencies.append(entry.latency_micros)
+            else:
+                failure_readonlytxn_latencies.append(entry.latency_micros)
 
     if len(all_latencies) == 0:
         raise ValueError("Zero completed transactions.")
@@ -387,16 +421,24 @@ def process_client_logs(client_log_filename, warmup_sec, duration_sec):
     all_latencies.sort()
     success_latencies.sort()
     failure_latencies.sort()
+    failure_writetxn_latencies.sort()
+    failure_readonlytxn_latencies.sort()
 
     num_transactions = len(all_latencies)
     num_successful_transactions = len(success_latencies)
     num_failed_transactions = len(failure_latencies)
+    num_failed_write_transactions = len(failure_writetxn_latencies)
+    num_failed_readonly_transactions = len(failure_readonlytxn_latencies)
 
     return BenchmarkResult(
         num_transactions = num_transactions,
         num_successful_transactions = num_successful_transactions,
         num_failed_transactions = num_failed_transactions,
+        num_failed_write_transactions = num_failed_write_transactions,
+        num_failed_readonly_transactions = num_failed_readonly_transactions,
         abort_rate = float(num_failed_transactions) / num_transactions,
+        write_txn_abort_rate = float(num_failed_write_transactions) / num_transactions,
+        readonly_txn_abort_rate = float(num_failed_readonly_transactions) / num_transactions,
 
         throughput_all = float(num_transactions) / duration_sec,
         throughput_success = float(num_successful_transactions) / duration_sec,

@@ -42,6 +42,9 @@ struct measurement {
     bool status;
 };
 constexpr size_t kNumMeasurement = 1000000;
+constexpr int kTxnSucc = 1;
+constexpr int kWriteTxnAbort = 2;
+constexpr int kReadOnlyTxnAbort = 3;
 
 void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplogClient,
                        zip::network::manager* manager) {
@@ -220,8 +223,6 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
             ttype = 4;
         }
 
-        //gettimeofday(&t3, NULL);
-        //fprintf(fp, "Begin commit\n");
         if (status) {
             status = client->Commit(boost::this_fiber::yield);
         }
@@ -236,7 +237,7 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
             (t2.tv_sec < FLAGS_secondsFromEpoch + FLAGS_duration - FLAGS_warmup)) {
             long latency = (t2.tv_sec - t1.tv_sec)*1000000 + (t2.tv_usec - t1.tv_usec);
             sprintf(buffer, "%d %ld.%06ld %ld.%06ld %ld %d\n", ++nTransactions, t1.tv_sec,
-                    t1.tv_usec, t2.tv_sec, t2.tv_usec, latency, status?1:0);
+                    t1.tv_usec, t2.tv_sec, t2.tv_usec, latency, status ? kTxnSucc : (ttype == 4 ? kReadOnlyTxnAbort : kWriteTxnAbort));
             results.push_back(string(buffer));
             if (status) {
                 tCount++;
@@ -253,13 +254,7 @@ void client_fiber_func(int thread_id, std::shared_ptr<zip::client::client> ziplo
             //++nTransactions;
         }
         gettimeofday(&t1, NULL);
-/*
-        if (i % 10 == 0) {
-            fprintf(fp, "yoyo nTransaction=%lu, has been running for %ld usec, tv_sec=%ld, warmup=%ld, duration-warmup=%ld\n", nTransactions, (t1.tv_sec-t0.tv_sec)*1000000 + (t1.tv_usec-t0.tv_usec), t2.tv_sec, FLAGS_secondsFromEpoch + FLAGS_warmup, FLAGS_secondsFromEpoch + FLAGS_duration - FLAGS_warmup);
-        }
-*/
         if (((t1.tv_sec-t0.tv_sec)*1000000 + (t1.tv_usec-t0.tv_usec)) > FLAGS_duration*1000000) {
-            // fprintf(fp, "yoyo break has running for %ld usec, tv_sec=%ld\n", (t1.tv_sec-t0.tv_sec)*1000000 + (t1.tv_usec-t0.tv_usec), t1.tv_sec);
             break;
         }
     }
